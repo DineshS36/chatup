@@ -1,4 +1,5 @@
 const Message = require('../models/Message');
+const Chat = require('../models/Chat');
 
 // In-memory map of userId → socketId
 const onlineUsers = new Map();
@@ -17,23 +18,25 @@ const chatSocket = (io) => {
         });
 
         // ─── send_message ────────────────────────────────────────
-        // Client sends: socket.emit('send_message', { senderId, receiverId, content })
-        // 1. Persists the message in MongoDB
-        // 2. Emits 'receive_message' to the receiver if online
+        // Client sends: socket.emit('send_message', { chatId, senderId, receiverId, content })
+        // 1. Persists the message in MongoDB (with chatId)
+        // 2. Updates the Chat's lastMessage
+        // 3. Emits 'receive_message' to the receiver if online
         socket.on('send_message', async (data) => {
             try {
-                const { senderId, receiverId, content } = data;
+                const { chatId, senderId, receiverId, content } = data;
 
                 // Validate required fields
-                if (!senderId || !receiverId || !content) {
+                if (!chatId || !senderId || !receiverId || !content) {
                     socket.emit('error', {
-                        message: 'senderId, receiverId, and content are required',
+                        message: 'chatId, senderId, receiverId, and content are required',
                     });
                     return;
                 }
 
                 // Save message to MongoDB
                 const message = await Message.create({
+                    chatId,
                     senderId,
                     receiverId,
                     content,
@@ -41,7 +44,10 @@ const chatSocket = (io) => {
                     status: 'sent',
                 });
 
-                console.log(`Message saved: ${message._id} (${senderId} → ${receiverId})`);
+                // Update chat's lastMessage
+                await Chat.findByIdAndUpdate(chatId, { lastMessage: message._id });
+
+                console.log(`Message saved: ${message._id} (${senderId} → ${receiverId}) in chat ${chatId}`);
 
                 // Check if receiver is online
                 const receiverSocketId = onlineUsers.get(receiverId);
@@ -50,6 +56,7 @@ const chatSocket = (io) => {
                     // Emit to the receiver's socket
                     io.to(receiverSocketId).emit('receive_message', {
                         _id: message._id,
+                        chatId: message.chatId,
                         senderId: message.senderId,
                         receiverId: message.receiverId,
                         content: message.content,

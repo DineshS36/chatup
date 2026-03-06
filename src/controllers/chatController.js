@@ -55,6 +55,28 @@ exports.getChat = async (req, res, next) => {
   }
 };
 
+// @desc    Get all chats for a specific user
+// @route   GET /api/chats/:userId
+// @access  Private
+exports.getChatsByUserId = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+
+    const chats = await Chat.find({ participants: userId })
+      .populate('participants', 'username email avatar status lastSeen')
+      .populate('lastMessage')
+      .sort({ updatedAt: -1 });
+
+    res.json({
+      success: true,
+      count: chats.length,
+      data: chats
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // @desc    Create one-on-one chat
 // @route   POST /api/chats
 // @access  Private

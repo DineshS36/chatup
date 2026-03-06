@@ -27,14 +27,14 @@ exports.getMessages = async (req, res, next) => {
       throw error;
     }
 
-    const messages = await Message.find({ chat: chatId })
-      .populate('sender', 'username email avatar')
-      .populate('readBy.user', 'username')
+    const messages = await Message.find({ chatId: chatId })
+      .populate('senderId', 'username email avatar')
+      .populate('receiverId', 'username email avatar')
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit);
 
-    const count = await Message.countDocuments({ chat: chatId });
+    const count = await Message.countDocuments({ chatId: chatId });
 
     res.json({
       success: true,
@@ -53,10 +53,10 @@ exports.getMessages = async (req, res, next) => {
 // @access  Private
 exports.sendMessage = async (req, res, next) => {
   try {
-    const { chatId, content, messageType = 'text', fileUrl } = req.body;
+    const { chatId, receiverId, content } = req.body;
 
-    if (!chatId || !content) {
-      const error = new Error('Chat ID and content are required');
+    if (!chatId || !content || !receiverId) {
+      const error = new Error('chatId, receiverId, and content are required');
       error.status = 400;
       throw error;
     }
@@ -80,11 +80,12 @@ exports.sendMessage = async (req, res, next) => {
     }
 
     const message = await Message.create({
-      chat: chatId,
-      sender: req.userId,
+      chatId,
+      senderId: req.userId,
+      receiverId,
       content,
-      messageType,
-      fileUrl
+      type: 'text',
+      status: 'sent'
     });
 
     // Update chat's lastMessage
@@ -92,8 +93,8 @@ exports.sendMessage = async (req, res, next) => {
     await chat.save();
 
     const populatedMessage = await Message.findById(message._id)
-      .populate('sender', 'username email avatar')
-      .populate('readBy.user', 'username');
+      .populate('senderId', 'username email avatar')
+      .populate('receiverId', 'username email avatar');
 
     res.status(201).json({
       success: true,
@@ -129,20 +130,15 @@ exports.markAsRead = async (req, res, next) => {
       throw error;
     }
 
-    // Mark all unread messages in this chat as read by current user
+    // Mark all unread messages in this chat as read
     await Message.updateMany(
       {
-        chat: chatId,
-        sender: { $ne: req.userId },
-        'readBy.user': { $ne: req.userId }
+        chatId: chatId,
+        senderId: { $ne: req.userId },
+        status: { $ne: 'read' }
       },
       {
-        $push: {
-          readBy: {
-            user: req.userId,
-            readAt: new Date()
-          }
-        }
+        $set: { status: 'read' }
       }
     );
 
@@ -169,7 +165,7 @@ exports.deleteMessage = async (req, res, next) => {
     }
 
     // Only sender can delete their message
-    if (message.sender.toString() !== req.userId) {
+    if (message.senderId.toString() !== req.userId) {
       const error = new Error('Not authorized to delete this message');
       error.status = 403;
       throw error;
