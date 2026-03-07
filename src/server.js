@@ -1,11 +1,11 @@
+// Load environment variables first (before any other imports)
+require('dotenv').config();
+
 const http = require('http');
 const { Server } = require('socket.io');
 const app = require('./app');
 const connectDB = require('./config/db');
 const chatSocket = require('./sockets/chatSocket');
-
-// Load environment variables
-require('dotenv').config();
 
 // Connect to MongoDB
 connectDB();
