@@ -184,3 +184,53 @@ exports.deleteMessage = async (req, res, next) => {
     next(error);
   }
 };
+
+// @desc    Search messages in a chat
+// @route   GET /api/messages/search/:chatId
+// @access  Private
+exports.searchMessages = async (req, res, next) => {
+  try {
+    const { chatId } = req.params;
+    const searchText = req.query.query;
+
+    if (!searchText) {
+      const error = new Error('Search query is required');
+      error.status = 400;
+      throw error;
+    }
+
+    // Check if user is participant in chat
+    const chat = await Chat.findById(chatId);
+    if (!chat) {
+      const error = new Error('Chat not found');
+      error.status = 404;
+      throw error;
+    }
+
+    const isParticipant = chat.participants.some(
+      (participant) => participant.toString() === req.userId
+    );
+
+    if (!isParticipant) {
+      const error = new Error('Not authorized to search this chat');
+      error.status = 403;
+      throw error;
+    }
+
+    const messages = await Message.find({
+      chatId,
+      $text: { $search: searchText }
+    })
+      .populate('senderId', 'username email avatar')
+      .sort({ createdAt: -1 })
+      .limit(50);
+
+    res.json({
+      success: true,
+      count: messages.length,
+      data: messages
+    });
+  } catch (error) {
+    next(error);
+  }
+};

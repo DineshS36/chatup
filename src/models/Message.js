@@ -40,4 +40,7 @@ const messageSchema = new mongoose.Schema({
 // Index for efficient paginated message loading
 messageSchema.index({ chatId: 1, createdAt: -1 });
 
+// Text index for full-text search on message content
+messageSchema.index({ content: 'text' });
+
 module.exports = mongoose.model('Message', messageSchema);
