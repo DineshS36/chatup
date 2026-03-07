@@ -82,18 +82,19 @@ exports.getChatsByUserId = async (req, res, next) => {
 // @access  Private
 exports.createChat = async (req, res, next) => {
   try {
-    const { userId } = req.body;
+    const { userId: otherUserId } = req.body;
+    const currentUserId = req.userId;
 
-    if (!userId) {
-      const error = new Error('User ID is required');
+    if (!otherUserId) {
+      const error = new Error('Other user ID is required');
       error.status = 400;
       throw error;
     }
 
-    // Check if chat already exists between these users
+    // Check if chat already exists
     const existingChat = await Chat.findOne({
       isGroupChat: false,
-      participants: { $all: [req.userId, userId], $size: 2 }
+      participants: { $all: [currentUserId, otherUserId], $size: 2 }
     }).populate('participants', 'username email avatar status lastSeen');
 
     if (existingChat) {
@@ -104,16 +105,17 @@ exports.createChat = async (req, res, next) => {
     }
 
     // Check if other user exists
-    const otherUser = await User.findById(userId);
+    const otherUser = await User.findById(otherUserId);
+
     if (!otherUser) {
       const error = new Error('User not found');
       error.status = 404;
       throw error;
     }
 
-    // Create new chat
+    // Create chat
     const chat = await Chat.create({
-      participants: [req.userId, userId],
+      participants: [currentUserId, otherUserId],
       isGroupChat: false
     });
 
@@ -124,6 +126,7 @@ exports.createChat = async (req, res, next) => {
       success: true,
       data: populatedChat
     });
+
   } catch (error) {
     next(error);
   }
