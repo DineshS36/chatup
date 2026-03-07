@@ -7,7 +7,8 @@ const Chat = require('../models/Chat');
 exports.getMessages = async (req, res, next) => {
   try {
     const { chatId } = req.params;
-    const { page = 1, limit = 50 } = req.query;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
 
     // Check if user is participant in chat
     const chat = await Chat.findById(chatId);
@@ -34,13 +35,15 @@ exports.getMessages = async (req, res, next) => {
       .limit(limit * 1)
       .skip((page - 1) * limit);
 
-    const count = await Message.countDocuments({ chatId: chatId });
+    const totalMessages = await Message.countDocuments({ chatId: chatId });
 
     res.json({
       success: true,
+      page,
+      limit,
       count: messages.length,
-      totalPages: Math.ceil(count / limit),
-      currentPage: page,
+      totalMessages,
+      totalPages: Math.ceil(totalMessages / limit),
       data: messages.reverse()
     });
   } catch (error) {
