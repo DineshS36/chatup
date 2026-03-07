@@ -63,6 +63,9 @@ const chatSocket = (io) => {
                 const receiverSocketId = onlineUsers.get(receiverId);
 
                 if (receiverSocketId) {
+                    // Mark as delivered since receiver is online
+                    await Message.findByIdAndUpdate(message._id, { status: 'delivered' });
+
                     // Emit to the receiver's socket
                     io.to(receiverSocketId).emit('receive_message', {
                         _id: message._id,
@@ -71,9 +74,17 @@ const chatSocket = (io) => {
                         receiverId: message.receiverId,
                         content: message.content,
                         type: message.type,
-                        status: message.status,
+                        status: 'delivered',
                         createdAt: message.createdAt,
                     });
+
+                    // Notify sender that message was delivered
+                    const senderSocketId = onlineUsers.get(senderId);
+                    if (senderSocketId) {
+                        io.to(senderSocketId).emit('message_delivered', {
+                            messageId: message._id,
+                        });
+                    }
 
                     console.log(`Message delivered to online user: ${receiverId}`);
                 } else {
@@ -81,6 +92,48 @@ const chatSocket = (io) => {
                 }
             } catch (error) {
                 console.error('Error sending message:', error.message);
+                socket.emit('error', { message: error.message });
+            }
+        });
+
+        // ─── messages_read ────────────────────────────────────────
+        // Client sends: socket.emit('messages_read', { chatId, userId })
+        // Marks all messages in the chat as read (except user's own)
+        // Notifies original senders
+        socket.on('messages_read', async (data) => {
+            try {
+                const { chatId, userId } = data;
+
+                if (!chatId || !userId) {
+                    socket.emit('error', { message: 'chatId and userId are required' });
+                    return;
+                }
+
+                // Find unread messages from other users
+                const unreadMessages = await Message.find({
+                    chatId,
+                    senderId: { $ne: userId },
+                    status: { $ne: 'read' }
+                });
+
+                // Bulk update to read
+                await Message.updateMany(
+                    { chatId, senderId: { $ne: userId }, status: { $ne: 'read' } },
+                    { status: 'read' }
+                );
+
+                // Collect unique senders and notify them
+                const senderIds = [...new Set(unreadMessages.map(m => m.senderId.toString()))];
+                senderIds.forEach((senderId) => {
+                    const senderSocketId = onlineUsers.get(senderId);
+                    if (senderSocketId) {
+                        io.to(senderSocketId).emit('messages_read', { chatId });
+                    }
+                });
+
+                console.log(`Messages in chat ${chatId} marked as read by ${userId}`);
+            } catch (error) {
+                console.error('Error marking messages as read:', error.message);
                 socket.emit('error', { message: error.message });
             }
         });
