@@ -30,4 +30,7 @@ const chatSchema = new mongoose.Schema({
   timestamps: true
 });
 
+// Index for fast chat list loading (filter by participant, sort by recent)
+chatSchema.index({ participants: 1, updatedAt: -1 });
+
 module.exports = mongoose.model('Chat', chatSchema);
