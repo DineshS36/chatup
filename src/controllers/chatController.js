@@ -299,6 +299,16 @@ exports.markChatAsRead = async (req, res, next) => {
       throw error;
     }
 
+    // Mark all unread messages from other users as read
+    await Message.updateMany(
+      {
+        chatId: chatId,
+        senderId: { $ne: req.userId },
+        status: { $ne: 'read' }
+      },
+      { status: 'read' }
+    );
+
     // Reset unread count for current user
     chat.unreadCounts.set(req.userId, 0);
     await chat.save();

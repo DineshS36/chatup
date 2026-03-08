@@ -98,6 +98,22 @@ function Chat() {
                 chatId: selectedChatId,
                 userId: user._id,
             });
+            // Reset unread count via API
+            API.put(`/chats/${selectedChatId}/read`).catch(() => { });
+            // Optimistically clear badge in sidebar
+            setChats((prev) =>
+                prev.map((c) =>
+                    c._id === selectedChatId
+                        ? {
+                            ...c,
+                            unreadCounts: {
+                                ...c.unreadCounts,
+                                [user._id]: 0,
+                            },
+                        }
+                        : c
+                )
+            );
         } else {
             setMessages([]);
         }
