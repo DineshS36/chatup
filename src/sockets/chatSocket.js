@@ -5,7 +5,15 @@ const User = require('../models/User');
 // In-memory map of userId → socketId
 const onlineUsers = new Map();
 
-const chatSocket = (io) => {
+const chatSocket = async (io) => {
+    // Reset all users to offline on server start
+    try {
+        await User.updateMany({}, { status: 'offline' });
+        console.log('All users reset to offline status');
+    } catch (err) {
+        console.error('Error resetting users to offline:', err.message);
+    }
+
     io.on('connection', (socket) => {
         console.log(`Socket connected: ${socket.id}`);
 
