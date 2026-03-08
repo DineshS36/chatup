@@ -13,7 +13,9 @@ function Chat() {
     const [messages, setMessages] = useState([]);
     const [messageText, setMessageText] = useState("");
     const [loadingMessages, setLoadingMessages] = useState(false);
+    const [isTyping, setIsTyping] = useState(false);
     const messagesEndRef = useRef(null);
+    const typingTimeoutRef = useRef(null);
     const navigate = useNavigate();
 
     // Get current user from localStorage
@@ -37,6 +39,8 @@ function Chat() {
             socket.off("receive_message");
             socket.off("message_delivered");
             socket.off("messages_read");
+            socket.off("user_typing");
+            socket.off("user_stop_typing");
         };
     }, []);
 
@@ -77,14 +81,31 @@ function Chat() {
             }
         };
 
+        // ─── Typing indicators ───
+        const handleUserTyping = ({ chatId, senderId }) => {
+            if (chatId === selectedChatId && senderId !== user._id) {
+                setIsTyping(true);
+            }
+        };
+
+        const handleUserStopTyping = ({ chatId }) => {
+            if (chatId === selectedChatId) {
+                setIsTyping(false);
+            }
+        };
+
         socket.on("receive_message", handleReceive);
         socket.on("message_delivered", handleDelivered);
         socket.on("messages_read", handleRead);
+        socket.on("user_typing", handleUserTyping);
+        socket.on("user_stop_typing", handleUserStopTyping);
 
         return () => {
             socket.off("receive_message", handleReceive);
             socket.off("message_delivered", handleDelivered);
             socket.off("messages_read", handleRead);
+            socket.off("user_typing", handleUserTyping);
+            socket.off("user_stop_typing", handleUserStopTyping);
         };
     }, [selectedChatId]);
 
@@ -116,6 +137,7 @@ function Chat() {
             );
         } else {
             setMessages([]);
+            setIsTyping(false);
         }
     }, [selectedChatId]);
 
@@ -154,9 +176,36 @@ function Chat() {
         }
     };
 
+    // ─── Typing emit ───
+    const handleInputChange = (e) => {
+        setMessageText(e.target.value);
+
+        if (selectedChatId) {
+            socket.emit("typing", {
+                chatId: selectedChatId,
+                senderId: user._id,
+            });
+
+            clearTimeout(typingTimeoutRef.current);
+            typingTimeoutRef.current = setTimeout(() => {
+                socket.emit("stop_typing", {
+                    chatId: selectedChatId,
+                    senderId: user._id,
+                });
+            }, 1000);
+        }
+    };
+
     // ─── Send message via socket ───
     const handleSendMessage = () => {
         if (!messageText.trim() || !selectedChatId) return;
+
+        // Stop typing indicator on send
+        clearTimeout(typingTimeoutRef.current);
+        socket.emit("stop_typing", {
+            chatId: selectedChatId,
+            senderId: user._id,
+        });
 
         const selectedChat = chats.find((c) => c._id === selectedChatId);
         const otherUser = selectedChat?.participants?.find(
@@ -270,170 +319,191 @@ function Chat() {
     const selectedChat = chats.find((c) => c._id === selectedChatId);
 
     return (
-        <div style={styles.container}>
-            {/* ─── Sidebar ─── */}
-            <div style={styles.sidebar}>
-                <div style={styles.sidebarHeader}>
-                    <h2 style={styles.sidebarTitle}>💬 Chats</h2>
-                    <div style={{ display: "flex", gap: "8px" }}>
-                        <button
-                            onClick={() => setShowUserList(true)}
-                            style={styles.newChatBtn}
-                            title="New Chat"
-                        >
-                            +
-                        </button>
-                        <button onClick={handleLogout} style={styles.logoutBtn} title="Logout">
-                            ↪
-                        </button>
-                    </div>
-                </div>
-
-                <div style={styles.chatList}>
-                    {loading ? (
-                        <p style={styles.placeholder}>Loading chats...</p>
-                    ) : error ? (
-                        <p style={styles.errorText}>{error}</p>
-                    ) : chats.length === 0 ? (
-                        <p style={styles.placeholder}>No chats yet</p>
-                    ) : (
-                        chats.map((chat) => {
-                            const isSelected = chat._id === selectedChatId;
-                            const unread = chat.unreadCounts?.[user._id] || 0;
-
-                            return (
-                                <div
-                                    key={chat._id}
-                                    onClick={() => setSelectedChatId(chat._id)}
-                                    style={{
-                                        ...styles.chatItem,
-                                        ...(isSelected ? styles.chatItemActive : {}),
-                                    }}
-                                >
-                                    <div style={styles.avatar}>{getInitial(chat)}</div>
-                                    <div style={styles.chatInfo}>
-                                        <div style={styles.chatTopRow}>
-                                            <span style={styles.chatName}>{getChatName(chat)}</span>
-                                            <span style={styles.chatTime}>
-                                                {formatTime(chat.updatedAt)}
-                                            </span>
-                                        </div>
-                                        <div style={styles.chatBottomRow}>
-                                            <span style={styles.lastMessage}>
-                                                {chat.lastMessage?.content || "No messages yet"}
-                                            </span>
-                                            {unread > 0 && (
-                                                <span style={styles.badge}>{unread}</span>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })
-                    )}
-                </div>
-            </div>
-
-            {/* ─── Main Area ─── */}
-            <div style={styles.main}>
-                {selectedChat ? (
-                    <>
-                        {/* Chat Header */}
-                        <div style={styles.chatHeader}>
-                            <div style={styles.avatar}>{getInitial(selectedChat)}</div>
-                            <h3 style={styles.chatHeaderName}>
-                                {getChatName(selectedChat)}
-                            </h3>
-                        </div>
-
-                        {/* Messages Area */}
-                        <div style={styles.messagesArea}>
-                            {loadingMessages ? (
-                                <p style={styles.mainPlaceholder}>Loading messages...</p>
-                            ) : messages.length === 0 ? (
-                                <div style={styles.emptyMessages}>
-                                    <p style={{ color: "rgba(255,255,255,0.3)", fontSize: "14px" }}>
-                                        No messages yet. Say hello! 👋
-                                    </p>
-                                </div>
-                            ) : (
-                                messages.map((msg) => {
-                                    const isOwn =
-                                        msg.senderId === user._id ||
-                                        msg.senderId?._id === user._id;
-                                    return (
-                                        <div
-                                            key={msg._id}
-                                            style={{
-                                                ...styles.messageRow,
-                                                justifyContent: isOwn ? "flex-end" : "flex-start",
-                                            }}
-                                        >
-                                            <div
-                                                style={{
-                                                    ...styles.messageBubble,
-                                                    ...(isOwn
-                                                        ? styles.ownBubble
-                                                        : styles.otherBubble),
-                                                }}
-                                            >
-                                                <p style={styles.messageContent}>{msg.content}</p>
-                                                <span style={styles.messageTime}>
-                                                    {formatMessageTime(msg.createdAt)}
-                                                    {isOwn && getStatusTicks(msg.status)}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    );
-                                })
-                            )}
-                            <div ref={messagesEndRef} />
-                        </div>
-
-                        {/* Message Input */}
-                        <div style={styles.inputBar}>
-                            <input
-                                value={messageText}
-                                onChange={(e) => setMessageText(e.target.value)}
-                                onKeyDown={handleKeyDown}
-                                placeholder="Type a message..."
-                                style={styles.messageInput}
-                            />
+        <>
+            <style>{`
+                @keyframes blink {
+                    0% { opacity: 0.2; }
+                    20% { opacity: 1; }
+                    100% { opacity: 0.2; }
+                }
+            `}</style>
+            <div style={styles.container}>
+                {/* ─── Sidebar ─── */}
+                <div style={styles.sidebar}>
+                    <div style={styles.sidebarHeader}>
+                        <h2 style={styles.sidebarTitle}>💬 Chats</h2>
+                        <div style={{ display: "flex", gap: "8px" }}>
                             <button
-                                onClick={handleSendMessage}
-                                disabled={!messageText.trim()}
-                                style={{
-                                    ...styles.sendBtn,
-                                    opacity: messageText.trim() ? 1 : 0.4,
-                                }}
+                                onClick={() => setShowUserList(true)}
+                                style={styles.newChatBtn}
+                                title="New Chat"
                             >
-                                ➤
+                                +
+                            </button>
+                            <button onClick={handleLogout} style={styles.logoutBtn} title="Logout">
+                                ↪
                             </button>
                         </div>
-                    </>
-                ) : (
-                    <div style={styles.mainContent}>
-                        <div style={styles.emptyState}>
-                            <span style={{ fontSize: "48px" }}>💬</span>
-                            <h3 style={{ color: "#fff", margin: "16px 0 8px" }}>
-                                Select a chat
-                            </h3>
-                            <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "14px" }}>
-                                Choose a conversation from the sidebar to start messaging
-                            </p>
-                        </div>
                     </div>
+
+                    <div style={styles.chatList}>
+                        {loading ? (
+                            <p style={styles.placeholder}>Loading chats...</p>
+                        ) : error ? (
+                            <p style={styles.errorText}>{error}</p>
+                        ) : chats.length === 0 ? (
+                            <p style={styles.placeholder}>No chats yet</p>
+                        ) : (
+                            chats.map((chat) => {
+                                const isSelected = chat._id === selectedChatId;
+                                const unread = chat.unreadCounts?.[user._id] || 0;
+
+                                return (
+                                    <div
+                                        key={chat._id}
+                                        onClick={() => setSelectedChatId(chat._id)}
+                                        style={{
+                                            ...styles.chatItem,
+                                            ...(isSelected ? styles.chatItemActive : {}),
+                                        }}
+                                    >
+                                        <div style={styles.avatar}>{getInitial(chat)}</div>
+                                        <div style={styles.chatInfo}>
+                                            <div style={styles.chatTopRow}>
+                                                <span style={styles.chatName}>{getChatName(chat)}</span>
+                                                <span style={styles.chatTime}>
+                                                    {formatTime(chat.updatedAt)}
+                                                </span>
+                                            </div>
+                                            <div style={styles.chatBottomRow}>
+                                                <span style={styles.lastMessage}>
+                                                    {chat.lastMessage?.content || "No messages yet"}
+                                                </span>
+                                                {unread > 0 && (
+                                                    <span style={styles.badge}>{unread}</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+                </div>
+
+                {/* ─── Main Area ─── */}
+                <div style={styles.main}>
+                    {selectedChat ? (
+                        <>
+                            {/* Chat Header */}
+                            <div style={styles.chatHeader}>
+                                <div style={styles.avatar}>{getInitial(selectedChat)}</div>
+                                <div>
+                                    <h3 style={styles.chatHeaderName}>
+                                        {getChatName(selectedChat)}
+                                    </h3>
+                                    {isTyping && (
+                                        <span style={styles.typingIndicator}>
+                                            typing
+                                            <span style={styles.typingDots}>
+                                                <span style={{ ...styles.dot, animationDelay: "0s" }}>.</span>
+                                                <span style={{ ...styles.dot, animationDelay: "0.2s" }}>.</span>
+                                                <span style={{ ...styles.dot, animationDelay: "0.4s" }}>.</span>
+                                            </span>
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Messages Area */}
+                            <div style={styles.messagesArea}>
+                                {loadingMessages ? (
+                                    <p style={styles.mainPlaceholder}>Loading messages...</p>
+                                ) : messages.length === 0 ? (
+                                    <div style={styles.emptyMessages}>
+                                        <p style={{ color: "rgba(255,255,255,0.3)", fontSize: "14px" }}>
+                                            No messages yet. Say hello! 👋
+                                        </p>
+                                    </div>
+                                ) : (
+                                    messages.map((msg) => {
+                                        const isOwn =
+                                            msg.senderId === user._id ||
+                                            msg.senderId?._id === user._id;
+                                        return (
+                                            <div
+                                                key={msg._id}
+                                                style={{
+                                                    ...styles.messageRow,
+                                                    justifyContent: isOwn ? "flex-end" : "flex-start",
+                                                }}
+                                            >
+                                                <div
+                                                    style={{
+                                                        ...styles.messageBubble,
+                                                        ...(isOwn
+                                                            ? styles.ownBubble
+                                                            : styles.otherBubble),
+                                                    }}
+                                                >
+                                                    <p style={styles.messageContent}>{msg.content}</p>
+                                                    <span style={styles.messageTime}>
+                                                        {formatMessageTime(msg.createdAt)}
+                                                        {isOwn && getStatusTicks(msg.status)}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                                )}
+                                <div ref={messagesEndRef} />
+                            </div>
+
+                            {/* Message Input */}
+                            <div style={styles.inputBar}>
+                                <input
+                                    value={messageText}
+                                    onChange={handleInputChange}
+                                    onKeyDown={handleKeyDown}
+                                    placeholder="Type a message..."
+                                    style={styles.messageInput}
+                                />
+                                <button
+                                    onClick={handleSendMessage}
+                                    disabled={!messageText.trim()}
+                                    style={{
+                                        ...styles.sendBtn,
+                                        opacity: messageText.trim() ? 1 : 0.4,
+                                    }}
+                                >
+                                    ➤
+                                </button>
+                            </div>
+                        </>
+                    ) : (
+                        <div style={styles.mainContent}>
+                            <div style={styles.emptyState}>
+                                <span style={{ fontSize: "48px" }}>💬</span>
+                                <h3 style={{ color: "#fff", margin: "16px 0 8px" }}>
+                                    Select a chat
+                                </h3>
+                                <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "14px" }}>
+                                    Choose a conversation from the sidebar to start messaging
+                                </p>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* UserList Modal */}
+                {showUserList && (
+                    <UserList
+                        onClose={() => setShowUserList(false)}
+                        onChatCreated={handleChatCreated}
+                    />
                 )}
             </div>
-
-            {/* UserList Modal */}
-            {showUserList && (
-                <UserList
-                    onClose={() => setShowUserList(false)}
-                    onChatCreated={handleChatCreated}
-                />
-            )}
-        </div>
+        </>
     );
 }
 
@@ -605,6 +675,19 @@ const styles = {
         margin: 0,
         fontSize: "16px",
         fontWeight: 600,
+    },
+    typingIndicator: {
+        fontSize: "12px",
+        color: "#4ade80",
+        display: "block",
+        marginTop: "2px",
+    },
+    typingDots: {
+        letterSpacing: "1px",
+    },
+    dot: {
+        display: "inline-block",
+        animation: "blink 1.4s infinite both",
     },
     mainContent: {
         flex: 1,
