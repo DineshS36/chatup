@@ -29,8 +29,8 @@ exports.getMessages = async (req, res, next) => {
     }
 
     const messages = await Message.find({ chatId: chatId })
-      .populate('senderId', 'username email avatar')
-      .populate('receiverId', 'username email avatar')
+      .populate('senderId', 'name email profilePic')
+      .populate('receiverId', 'name email profilePic')
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit);

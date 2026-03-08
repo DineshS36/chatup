@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../services/api";
 import UserList from "../components/UserList";
+import socket from "../socket/socket";
 
 function Chat() {
     const [chats, setChats] = useState([]);
@@ -9,20 +10,63 @@ function Chat() {
     const [loading, setLoading] = useState(true);
     const [showUserList, setShowUserList] = useState(false);
     const [error, setError] = useState("");
+    const [messages, setMessages] = useState([]);
+    const [messageText, setMessageText] = useState("");
+    const [loadingMessages, setLoadingMessages] = useState(false);
+    const messagesEndRef = useRef(null);
     const navigate = useNavigate();
 
     // Get current user from localStorage
     const user = JSON.parse(localStorage.getItem("user") || "{}");
 
+    // ─── Auth check & fetch chats ───
     useEffect(() => {
-        // Redirect to login if no token
         const token = localStorage.getItem("token");
         if (!token) {
             navigate("/");
             return;
         }
         fetchChats();
+
+        // Register with socket
+        if (user._id) {
+            socket.emit("join", user._id);
+        }
+
+        return () => {
+            socket.off("receive_message");
+        };
     }, []);
+
+    // ─── Listen for incoming messages ───
+    useEffect(() => {
+        const handler = (message) => {
+            // Only add if message belongs to the currently selected chat
+            if (message.chatId === selectedChatId) {
+                setMessages((prev) => [...prev, message]);
+            }
+            // Refresh chat list to update lastMessage preview
+            fetchChats();
+        };
+
+        socket.on("receive_message", handler);
+        return () => socket.off("receive_message", handler);
+    }, [selectedChatId]);
+
+    // ─── Fetch messages when chat is selected ───
+    useEffect(() => {
+        if (selectedChatId) {
+            fetchMessages(selectedChatId);
+            socket.emit("join_chat", selectedChatId);
+        } else {
+            setMessages([]);
+        }
+    }, [selectedChatId]);
+
+    // ─── Auto-scroll to bottom ───
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [messages]);
 
     const fetchChats = async () => {
         try {
@@ -42,20 +86,72 @@ function Chat() {
         }
     };
 
-    // Get the other participant's name (for 1-on-1 chats)
+    const fetchMessages = async (chatId) => {
+        try {
+            setLoadingMessages(true);
+            const res = await API.get(`/messages/${chatId}`);
+            setMessages(res.data.data);
+        } catch (err) {
+            console.error("Failed to load messages:", err);
+        } finally {
+            setLoadingMessages(false);
+        }
+    };
+
+    // ─── Send message via socket ───
+    const handleSendMessage = () => {
+        if (!messageText.trim() || !selectedChatId) return;
+
+        const selectedChat = chats.find((c) => c._id === selectedChatId);
+        const otherUser = selectedChat?.participants?.find(
+            (p) => p._id !== user._id
+        );
+
+        if (!otherUser) return;
+
+        const msgPayload = {
+            chatId: selectedChatId,
+            senderId: user._id,
+            receiverId: otherUser._id,
+            content: messageText.trim(),
+        };
+
+        socket.emit("send_message", msgPayload);
+
+        // Optimistically add the message to the UI
+        setMessages((prev) => [
+            ...prev,
+            {
+                _id: Date.now().toString(),
+                ...msgPayload,
+                createdAt: new Date().toISOString(),
+                status: "sent",
+            },
+        ]);
+
+        setMessageText("");
+        fetchChats(); // Update sidebar lastMessage
+    };
+
+    const handleKeyDown = (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            handleSendMessage();
+        }
+    };
+
+    // ─── Helpers ───
     const getChatName = (chat) => {
         if (chat.isGroupChat) return chat.name;
         const other = chat.participants?.find((p) => p._id !== user._id);
         return other?.name || "Unknown User";
     };
 
-    // Get avatar initial
     const getInitial = (chat) => {
         const name = getChatName(chat);
         return name.charAt(0).toUpperCase();
     };
 
-    // Format time
     const formatTime = (dateStr) => {
         if (!dateStr) return "";
         const date = new Date(dateStr);
@@ -69,6 +165,14 @@ function Chat() {
         const days = Math.floor(hours / 24);
         if (days < 7) return `${days}d`;
         return date.toLocaleDateString();
+    };
+
+    const formatMessageTime = (dateStr) => {
+        if (!dateStr) return "";
+        return new Date(dateStr).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+        });
     };
 
     const handleLogout = () => {
@@ -126,10 +230,7 @@ function Chat() {
                                         ...(isSelected ? styles.chatItemActive : {}),
                                     }}
                                 >
-                                    {/* Avatar */}
                                     <div style={styles.avatar}>{getInitial(chat)}</div>
-
-                                    {/* Info */}
                                     <div style={styles.chatInfo}>
                                         <div style={styles.chatTopRow}>
                                             <span style={styles.chatName}>{getChatName(chat)}</span>
@@ -156,18 +257,81 @@ function Chat() {
             {/* ─── Main Area ─── */}
             <div style={styles.main}>
                 {selectedChat ? (
-                    <div style={styles.chatHeader}>
-                        <div style={styles.avatar}>{getInitial(selectedChat)}</div>
-                        <h3 style={styles.chatHeaderName}>{getChatName(selectedChat)}</h3>
-                    </div>
-                ) : null}
+                    <>
+                        {/* Chat Header */}
+                        <div style={styles.chatHeader}>
+                            <div style={styles.avatar}>{getInitial(selectedChat)}</div>
+                            <h3 style={styles.chatHeaderName}>
+                                {getChatName(selectedChat)}
+                            </h3>
+                        </div>
 
-                <div style={styles.mainContent}>
-                    {selectedChatId ? (
-                        <p style={styles.mainPlaceholder}>
-                            Messages will appear here
-                        </p>
-                    ) : (
+                        {/* Messages Area */}
+                        <div style={styles.messagesArea}>
+                            {loadingMessages ? (
+                                <p style={styles.mainPlaceholder}>Loading messages...</p>
+                            ) : messages.length === 0 ? (
+                                <div style={styles.emptyMessages}>
+                                    <p style={{ color: "rgba(255,255,255,0.3)", fontSize: "14px" }}>
+                                        No messages yet. Say hello! 👋
+                                    </p>
+                                </div>
+                            ) : (
+                                messages.map((msg) => {
+                                    const isOwn =
+                                        msg.senderId === user._id ||
+                                        msg.senderId?._id === user._id;
+                                    return (
+                                        <div
+                                            key={msg._id}
+                                            style={{
+                                                ...styles.messageRow,
+                                                justifyContent: isOwn ? "flex-end" : "flex-start",
+                                            }}
+                                        >
+                                            <div
+                                                style={{
+                                                    ...styles.messageBubble,
+                                                    ...(isOwn
+                                                        ? styles.ownBubble
+                                                        : styles.otherBubble),
+                                                }}
+                                            >
+                                                <p style={styles.messageContent}>{msg.content}</p>
+                                                <span style={styles.messageTime}>
+                                                    {formatMessageTime(msg.createdAt)}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            )}
+                            <div ref={messagesEndRef} />
+                        </div>
+
+                        {/* Message Input */}
+                        <div style={styles.inputBar}>
+                            <input
+                                value={messageText}
+                                onChange={(e) => setMessageText(e.target.value)}
+                                onKeyDown={handleKeyDown}
+                                placeholder="Type a message..."
+                                style={styles.messageInput}
+                            />
+                            <button
+                                onClick={handleSendMessage}
+                                disabled={!messageText.trim()}
+                                style={{
+                                    ...styles.sendBtn,
+                                    opacity: messageText.trim() ? 1 : 0.4,
+                                }}
+                            >
+                                ➤
+                            </button>
+                        </div>
+                    </>
+                ) : (
+                    <div style={styles.mainContent}>
                         <div style={styles.emptyState}>
                             <span style={{ fontSize: "48px" }}>💬</span>
                             <h3 style={{ color: "#fff", margin: "16px 0 8px" }}>
@@ -177,8 +341,8 @@ function Chat() {
                                 Choose a conversation from the sidebar to start messaging
                             </p>
                         </div>
-                    )}
-                </div>
+                    </div>
+                )}
             </div>
 
             {/* UserList Modal */}
@@ -370,9 +534,94 @@ const styles = {
     mainPlaceholder: {
         color: "rgba(255,255,255,0.3)",
         fontSize: "14px",
+        textAlign: "center",
+        padding: "40px",
     },
     emptyState: {
         textAlign: "center",
+    },
+
+    /* Messages */
+    messagesArea: {
+        flex: 1,
+        overflowY: "auto",
+        padding: "20px 24px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "6px",
+    },
+    emptyMessages: {
+        flex: 1,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    messageRow: {
+        display: "flex",
+        width: "100%",
+    },
+    messageBubble: {
+        maxWidth: "65%",
+        padding: "10px 16px",
+        borderRadius: "16px",
+        position: "relative",
+    },
+    ownBubble: {
+        background: "linear-gradient(135deg, #667eea, #764ba2)",
+        borderBottomRightRadius: "4px",
+    },
+    otherBubble: {
+        background: "rgba(255,255,255,0.08)",
+        borderBottomLeftRadius: "4px",
+    },
+    messageContent: {
+        margin: 0,
+        fontSize: "14px",
+        lineHeight: "1.5",
+        wordBreak: "break-word",
+    },
+    messageTime: {
+        fontSize: "10px",
+        color: "rgba(255,255,255,0.4)",
+        marginTop: "4px",
+        display: "block",
+        textAlign: "right",
+    },
+
+    /* Input bar */
+    inputBar: {
+        display: "flex",
+        alignItems: "center",
+        gap: "12px",
+        padding: "16px 24px",
+        borderTop: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(255,255,255,0.03)",
+    },
+    messageInput: {
+        flex: 1,
+        background: "rgba(255,255,255,0.07)",
+        border: "1px solid rgba(255,255,255,0.12)",
+        borderRadius: "12px",
+        padding: "14px 18px",
+        fontSize: "14px",
+        color: "#fff",
+        outline: "none",
+        transition: "border-color 0.2s",
+    },
+    sendBtn: {
+        background: "linear-gradient(135deg, #667eea, #764ba2)",
+        border: "none",
+        color: "#fff",
+        fontSize: "18px",
+        width: "48px",
+        height: "48px",
+        borderRadius: "14px",
+        cursor: "pointer",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        transition: "opacity 0.15s",
+        flexShrink: 0,
     },
 };
 
