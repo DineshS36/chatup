@@ -35,22 +35,57 @@ function Chat() {
 
         return () => {
             socket.off("receive_message");
+            socket.off("message_delivered");
+            socket.off("messages_read");
         };
     }, []);
 
     // ─── Listen for incoming messages ───
     useEffect(() => {
-        const handler = (message) => {
-            // Only add if message belongs to the currently selected chat
+        const handleReceive = (message) => {
             if (message.chatId === selectedChatId) {
                 setMessages((prev) => [...prev, message]);
+                // Mark as read since we have this chat open
+                socket.emit("messages_read", {
+                    chatId: selectedChatId,
+                    userId: user._id,
+                });
             }
-            // Refresh chat list to update lastMessage preview
             fetchChats();
         };
 
-        socket.on("receive_message", handler);
-        return () => socket.off("receive_message", handler);
+        const handleDelivered = ({ messageId }) => {
+            setMessages((prev) =>
+                prev.map((msg) =>
+                    msg._id === messageId || msg._id === messageId?.toString()
+                        ? { ...msg, status: "delivered" }
+                        : msg
+                )
+            );
+        };
+
+        const handleRead = ({ chatId }) => {
+            if (chatId === selectedChatId) {
+                setMessages((prev) =>
+                    prev.map((msg) => {
+                        const isOwn =
+                            msg.senderId === user._id ||
+                            msg.senderId?._id === user._id;
+                        return isOwn ? { ...msg, status: "read" } : msg;
+                    })
+                );
+            }
+        };
+
+        socket.on("receive_message", handleReceive);
+        socket.on("message_delivered", handleDelivered);
+        socket.on("messages_read", handleRead);
+
+        return () => {
+            socket.off("receive_message", handleReceive);
+            socket.off("message_delivered", handleDelivered);
+            socket.off("messages_read", handleRead);
+        };
     }, [selectedChatId]);
 
     // ─── Fetch messages when chat is selected ───
@@ -58,6 +93,11 @@ function Chat() {
         if (selectedChatId) {
             fetchMessages(selectedChatId);
             socket.emit("join_chat", selectedChatId);
+            // Mark messages as read when opening a chat
+            socket.emit("messages_read", {
+                chatId: selectedChatId,
+                userId: user._id,
+            });
         } else {
             setMessages([]);
         }
@@ -173,6 +213,30 @@ function Chat() {
             hour: "2-digit",
             minute: "2-digit",
         });
+    };
+
+    // ─── Status ticks ───
+    const getStatusTicks = (status) => {
+        switch (status) {
+            case "read":
+                return (
+                    <span style={styles.tickRead} title="Read">
+                        ✓✓
+                    </span>
+                );
+            case "delivered":
+                return (
+                    <span style={styles.tickDelivered} title="Delivered">
+                        ✓✓
+                    </span>
+                );
+            default:
+                return (
+                    <span style={styles.tickSent} title="Sent">
+                        ✓
+                    </span>
+                );
+        }
     };
 
     const handleLogout = () => {
@@ -300,6 +364,7 @@ function Chat() {
                                                 <p style={styles.messageContent}>{msg.content}</p>
                                                 <span style={styles.messageTime}>
                                                     {formatMessageTime(msg.createdAt)}
+                                                    {isOwn && getStatusTicks(msg.status)}
                                                 </span>
                                             </div>
                                         </div>
@@ -584,8 +649,25 @@ const styles = {
         fontSize: "10px",
         color: "rgba(255,255,255,0.4)",
         marginTop: "4px",
-        display: "block",
-        textAlign: "right",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "flex-end",
+        gap: "4px",
+    },
+    tickSent: {
+        fontSize: "12px",
+        color: "rgba(255,255,255,0.4)",
+        letterSpacing: "-2px",
+    },
+    tickDelivered: {
+        fontSize: "12px",
+        color: "rgba(255,255,255,0.5)",
+        letterSpacing: "-2px",
+    },
+    tickRead: {
+        fontSize: "12px",
+        color: "#60a5fa",
+        letterSpacing: "-2px",
     },
 
     /* Input bar */
