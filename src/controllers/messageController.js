@@ -154,6 +154,57 @@ exports.markAsRead = async (req, res, next) => {
   }
 };
 
+// @desc    Edit a message
+// @route   PUT /api/messages/:id
+// @access  Private
+exports.editMessage = async (req, res, next) => {
+  try {
+    const { content } = req.body;
+
+    if (!content) {
+      const error = new Error('Message content is required');
+      error.status = 400;
+      throw error;
+    }
+
+    const message = await Message.findById(req.params.id);
+
+    if (!message) {
+      const error = new Error('Message not found');
+      error.status = 404;
+      throw error;
+    }
+
+    // Only sender can edit their message
+    if (message.senderId.toString() !== req.userId) {
+      const error = new Error('Not authorized to edit this message');
+      error.status = 403;
+      throw error;
+    }
+
+    message.content = content;
+    message.edited = true;
+    await message.save();
+
+    const populatedMessage = await Message.findById(message._id)
+      .populate('senderId', 'username email avatar')
+      .populate('receiverId', 'username email avatar');
+
+    // Emit socket event
+    const io = req.app.get('io');
+    if (io) {
+      io.to(message.chatId.toString()).emit('message_updated', populatedMessage);
+    }
+
+    res.json({
+      success: true,
+      data: populatedMessage
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // @desc    Delete a message
 // @route   DELETE /api/messages/:id
 // @access  Private
@@ -174,11 +225,24 @@ exports.deleteMessage = async (req, res, next) => {
       throw error;
     }
 
-    await Message.findByIdAndDelete(req.params.id);
+    message.deleted = true;
+    message.content = "This message was deleted";
+    await message.save();
+
+    const populatedMessage = await Message.findById(message._id)
+      .populate('senderId', 'username email avatar')
+      .populate('receiverId', 'username email avatar');
+
+    // Emit socket event
+    const io = req.app.get('io');
+    if (io) {
+      io.to(message.chatId.toString()).emit('message_deleted', populatedMessage._id);
+    }
 
     res.json({
       success: true,
-      message: 'Message deleted successfully'
+      message: 'Message deleted successfully',
+      data: populatedMessage
     });
   } catch (error) {
     next(error);

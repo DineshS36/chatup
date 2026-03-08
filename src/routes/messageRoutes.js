@@ -3,6 +3,7 @@ const {
   getMessages,
   sendMessage,
   markAsRead,
+  editMessage,
   deleteMessage,
   searchMessages
 } = require('../controllers/messageController');
@@ -17,6 +18,7 @@ router.get('/search/:chatId', searchMessages);
 router.get('/:chatId', getMessages);
 router.post('/', sendMessage);
 router.put('/read/:chatId', markAsRead);
+router.put('/:id', editMessage);
 router.delete('/:id', deleteMessage);
 
 module.exports = router;
