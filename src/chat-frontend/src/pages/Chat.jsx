@@ -478,6 +478,9 @@ function Chat() {
                     20% { opacity: 1; }
                     100% { opacity: 0.2; }
                 }
+                .msg-row:hover .msg-actions {
+                    opacity: 1 !important;
+                }
             `}</style>
             <div style={styles.container}>
                 {/* ─── Sidebar ─── */}
@@ -587,11 +590,30 @@ function Chat() {
                                         return (
                                             <div
                                                 key={msg._id}
+                                                className="msg-row"
                                                 style={{
                                                     ...styles.messageRow,
                                                     justifyContent: isOwn ? "flex-end" : "flex-start",
                                                 }}
                                             >
+                                                {isOwn && !msg.deleted && (
+                                                    <div className="msg-actions" style={styles.messageActions}>
+                                                        <button
+                                                            onClick={() => handleEditClick(msg)}
+                                                            style={styles.actionBtn}
+                                                            title="Edit message"
+                                                        >
+                                                            ✎
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDeleteClick(msg._id)}
+                                                            style={styles.actionBtn}
+                                                            title="Delete message"
+                                                        >
+                                                            🗑
+                                                        </button>
+                                                    </div>
+                                                )}
                                                 <div
                                                     style={{
                                                         ...styles.messageBubble,
@@ -613,24 +635,6 @@ function Chat() {
                                                             {formatMessageTime(msg.createdAt)}
                                                             {isOwn && getStatusTicks(msg.status)}
                                                         </span>
-                                                        {isOwn && !msg.deleted && (
-                                                            <div style={styles.messageActions}>
-                                                                <button
-                                                                    onClick={() => handleEditClick(msg)}
-                                                                    style={styles.actionBtn}
-                                                                    title="Edit message"
-                                                                >
-                                                                    ✎
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => handleDeleteClick(msg._id)}
-                                                                    style={styles.actionBtn}
-                                                                    title="Delete message"
-                                                                >
-                                                                    🗑
-                                                                </button>
-                                                            </div>
-                                                        )}
                                                     </div>
                                                 </div>
                                             </div>
@@ -994,12 +998,9 @@ const styles = {
         gap: "4px",
         opacity: 0,
         transition: "opacity 0.2s",
-        position: "absolute",
-        top: "4px",
-        right: "8px",
-        background: "inherit",
-        padding: "2px",
-        borderRadius: "4px",
+        alignItems: "center",
+        marginRight: "8px",
+        flexShrink: 0,
     },
     // Adding a hover effect for messageRow to show actions
     // Note: Inline styles don't support pseudo-classes easily, so we might need css for the hover
