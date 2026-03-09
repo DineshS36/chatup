@@ -605,10 +605,35 @@ function Chat() {
                                         </p>
                                     </div>
                                 ) : (
-                                    messages.map((msg) => {
+                                    messages.map((msg, index) => {
                                         const isOwn =
                                             msg.senderId === user._id ||
                                             msg.senderId?._id === user._id;
+
+                                        // Grouping logic
+                                        const prevMsg = messages[index - 1];
+                                        const nextMsg = messages[index + 1];
+                                        const getSenderId = (m) => m?.senderId?._id || m?.senderId;
+                                        const isSameSenderAsPrev = prevMsg && getSenderId(prevMsg) === getSenderId(msg);
+                                        const isSameSenderAsNext = nextMsg && getSenderId(nextMsg) === getSenderId(msg);
+
+                                        // Determine bubble position in group
+                                        const isFirst = !isSameSenderAsPrev && isSameSenderAsNext;
+                                        const isMiddle = isSameSenderAsPrev && isSameSenderAsNext;
+                                        const isLast = isSameSenderAsPrev && !isSameSenderAsNext;
+                                        const isGrouped = isSameSenderAsPrev;
+
+                                        // Grouped border-radius
+                                        let groupedRadius = {};
+                                        if (isOwn) {
+                                            if (isFirst) groupedRadius = { borderBottomRightRadius: "4px" };
+                                            else if (isMiddle) groupedRadius = { borderTopRightRadius: "4px", borderBottomRightRadius: "4px" };
+                                            else if (isLast) groupedRadius = { borderTopRightRadius: "4px" };
+                                        } else {
+                                            if (isFirst) groupedRadius = { borderBottomLeftRadius: "4px" };
+                                            else if (isMiddle) groupedRadius = { borderTopLeftRadius: "4px", borderBottomLeftRadius: "4px" };
+                                            else if (isLast) groupedRadius = { borderTopLeftRadius: "4px" };
+                                        }
 
                                         return (
                                             <div
@@ -617,6 +642,7 @@ function Chat() {
                                                 style={{
                                                     ...styles.messageRow,
                                                     justifyContent: isOwn ? "flex-end" : "flex-start",
+                                                    ...(isGrouped ? { marginBottom: "1px" } : {}),
                                                 }}
                                             >
                                                 {!msg.deleted && (
@@ -676,6 +702,7 @@ function Chat() {
                                                                 ? styles.ownBubble
                                                                 : styles.otherBubble),
                                                             ...(msg.deleted ? styles.deletedBubble : {}),
+                                                            ...groupedRadius,
                                                         }}
                                                     >
                                                         {msg.replyTo && (
