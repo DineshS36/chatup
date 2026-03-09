@@ -49,7 +49,7 @@ const chatSocket = async (io) => {
         // 3. Emits 'receive_message' to the receiver if online
         socket.on('send_message', async (data) => {
             try {
-                const { chatId, senderId, receiverId, content } = data;
+                const { chatId, senderId, receiverId, content, replyTo } = data;
 
                 // Validate required fields
                 if (!chatId || !senderId || !receiverId || !content) {
@@ -67,6 +67,7 @@ const chatSocket = async (io) => {
                     content,
                     type: 'text',
                     status: 'sent',
+                    replyTo: replyTo || null,
                 });
 
                 // Update chat's lastMessage and increment unread counts
@@ -104,6 +105,7 @@ const chatSocket = async (io) => {
                         type: message.type,
                         status: 'delivered',
                         createdAt: message.createdAt,
+                        replyTo: message.replyTo,
                     });
 
                     // Notify sender that message was delivered

@@ -14,6 +14,7 @@ function Chat() {
     const [messageText, setMessageText] = useState("");
     const [editingMessageId, setEditingMessageId] = useState(null);
     const [messageToDelete, setMessageToDelete] = useState(null);
+    const [replyMessage, setReplyMessage] = useState(null);
     const [loadingMessages, setLoadingMessages] = useState(false);
     const [isTyping, setIsTyping] = useState(false);
     const [onlineStatuses, setOnlineStatuses] = useState({});
@@ -279,6 +280,7 @@ function Chat() {
                 senderId: user._id,
                 receiverId: otherUser?._id,
                 content: messageText.trim(),
+                replyTo: replyMessage?._id || null,
             };
 
             // Send via socket instead of API for real-time
@@ -290,12 +292,15 @@ function Chat() {
                 {
                     _id: Date.now().toString(),
                     ...msgPayload,
+                    // Keep full replyTo object for optimistic render
+                    replyTo: replyMessage ? { _id: replyMessage._id, content: replyMessage.content, senderId: replyMessage.senderId } : null,
                     createdAt: new Date().toISOString(),
                     status: "sent",
                 },
             ]);
 
             setMessageText("");
+            setReplyMessage(null);
             fetchChats(); // Update sidebar lastMessage
         } catch (error) {
             console.error("Error managing message:", error);
@@ -596,22 +601,33 @@ function Chat() {
                                                     justifyContent: isOwn ? "flex-end" : "flex-start",
                                                 }}
                                             >
-                                                {isOwn && !msg.deleted && (
+                                                {!msg.deleted && (
                                                     <div className="msg-actions" style={styles.messageActions}>
                                                         <button
-                                                            onClick={() => handleEditClick(msg)}
+                                                            onClick={() => setReplyMessage(msg)}
                                                             style={styles.actionBtn}
-                                                            title="Edit message"
+                                                            title="Reply"
                                                         >
-                                                            ✎
+                                                            ↩
                                                         </button>
-                                                        <button
-                                                            onClick={() => handleDeleteClick(msg._id)}
-                                                            style={styles.actionBtn}
-                                                            title="Delete message"
-                                                        >
-                                                            🗑
-                                                        </button>
+                                                        {isOwn && (
+                                                            <>
+                                                                <button
+                                                                    onClick={() => handleEditClick(msg)}
+                                                                    style={styles.actionBtn}
+                                                                    title="Edit message"
+                                                                >
+                                                                    ✎
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handleDeleteClick(msg._id)}
+                                                                    style={styles.actionBtn}
+                                                                    title="Delete message"
+                                                                >
+                                                                    🗑
+                                                                </button>
+                                                            </>
+                                                        )}
                                                     </div>
                                                 )}
                                                 <div
@@ -623,6 +639,18 @@ function Chat() {
                                                         ...(msg.deleted ? styles.deletedBubble : {}),
                                                     }}
                                                 >
+                                                    {msg.replyTo && (
+                                                        <div style={styles.replyPreviewBubble}>
+                                                            <span style={styles.replyPreviewName}>
+                                                                {msg.replyTo.senderId?.name || msg.replyTo.senderId === user._id ? "You" : "User"}
+                                                            </span>
+                                                            <span style={styles.replyPreviewText}>
+                                                                {msg.replyTo.content?.length > 60
+                                                                    ? msg.replyTo.content.substring(0, 60) + "..."
+                                                                    : msg.replyTo.content}
+                                                            </span>
+                                                        </div>
+                                                    )}
                                                     <p style={{
                                                         ...styles.messageContent,
                                                         ...(msg.deleted ? { fontStyle: "italic", opacity: 0.7 } : {})
@@ -646,6 +674,19 @@ function Chat() {
 
                             {/* Message Input */}
                             <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                {replyMessage && !editingMessageId && (
+                                    <div style={styles.replyBanner}>
+                                        <div style={{ flex: 1 }}>
+                                            <span style={{ fontSize: '11px', color: '#4ade80', display: 'block' }}>
+                                                Replying to {replyMessage.senderId === user._id || replyMessage.senderId?._id === user._id ? "yourself" : (replyMessage.senderId?.name || "User")}
+                                            </span>
+                                            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>
+                                                {replyMessage.content?.length > 50 ? replyMessage.content.substring(0, 50) + "..." : replyMessage.content}
+                                            </span>
+                                        </div>
+                                        <button onClick={() => setReplyMessage(null)} style={styles.cancelEditBtn}>✕</button>
+                                    </div>
+                                )}
                                 {editingMessageId && (
                                     <div style={styles.editBanner}>
                                         <span style={{ fontSize: '12px', color: '#667eea' }}>Editing message...</span>
@@ -1023,6 +1064,40 @@ const styles = {
         background: "rgba(255,255,255,0.04)",
         border: "1px dashed rgba(255,255,255,0.1)",
     },
+
+    /* Reply styles */
+    replyPreviewBubble: {
+        background: "rgba(255,255,255,0.08)",
+        borderLeft: "3px solid #4ade80",
+        borderRadius: "4px",
+        padding: "6px 10px",
+        marginBottom: "6px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "2px",
+    },
+    replyPreviewName: {
+        fontSize: "11px",
+        fontWeight: 600,
+        color: "#4ade80",
+    },
+    replyPreviewText: {
+        fontSize: "12px",
+        color: "rgba(255,255,255,0.5)",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+    },
+    replyBanner: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        padding: "8px 24px",
+        background: "rgba(74, 222, 128, 0.08)",
+        borderTop: "1px solid rgba(74, 222, 128, 0.2)",
+        borderLeft: "3px solid #4ade80",
+    },
+
     editBanner: {
         display: "flex",
         justifyContent: "space-between",
