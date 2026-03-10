@@ -21,6 +21,7 @@ function Chat() {
     const [searchResults, setSearchResults] = useState([]);
     const [currentResultIndex, setCurrentResultIndex] = useState(0);
     const [showSearch, setShowSearch] = useState(false);
+    const [pinnedMessages, setPinnedMessages] = useState([]);
     const [loadingMessages, setLoadingMessages] = useState(false);
     const [isTyping, setIsTyping] = useState(false);
     const [onlineStatuses, setOnlineStatuses] = useState({});
@@ -137,6 +138,10 @@ function Chat() {
             );
         };
 
+        const handlePinnedUpdated = (pinned) => {
+            setPinnedMessages(pinned);
+        };
+
         socket.on("receive_message", handleReceive);
         socket.on("message_delivered", handleDelivered);
         socket.on("messages_read", handleRead);
@@ -146,6 +151,7 @@ function Chat() {
         socket.on("message_updated", handleMessageUpdated);
         socket.on("message_deleted", handleMessageDeleted);
         socket.on("reaction_updated", handleReactionUpdated);
+        socket.on("pinned_updated", handlePinnedUpdated);
 
         return () => {
             socket.off("receive_message", handleReceive);
@@ -157,6 +163,7 @@ function Chat() {
             socket.off("message_updated", handleMessageUpdated);
             socket.off("message_deleted", handleMessageDeleted);
             socket.off("reaction_updated", handleReactionUpdated);
+            socket.off("pinned_updated", handlePinnedUpdated);
         };
     }, [selectedChatId]);
 
@@ -470,6 +477,25 @@ function Chat() {
         setCurrentResultIndex(0);
     };
 
+    // ─── Pin handlers ───
+    const handlePinMessage = async (msgId) => {
+        try {
+            const { data } = await API.post(`/chats/${selectedChatId}/pin`, { messageId: msgId });
+            if (data.success) setPinnedMessages(data.data);
+        } catch (error) {
+            console.error("Failed to pin", error);
+        }
+    };
+
+    const handleUnpinMessage = async (msgId) => {
+        try {
+            const { data } = await API.delete(`/chats/${selectedChatId}/pin/${msgId}`);
+            if (data.success) setPinnedMessages(data.data);
+        } catch (error) {
+            console.error("Failed to unpin", error);
+        }
+    };
+
     // ─── Helpers ───
     const getChatName = (chat) => {
         if (chat.isGroupChat) return chat.name;
@@ -591,6 +617,15 @@ function Chat() {
     };
 
     const selectedChat = chats.find((c) => c._id === selectedChatId);
+
+    // Load pinned messages when chat changes
+    useEffect(() => {
+        if (selectedChat?.pinnedMessages) {
+            setPinnedMessages(selectedChat.pinnedMessages);
+        } else {
+            setPinnedMessages([]);
+        }
+    }, [selectedChatId]);
 
     return (
         <>
@@ -729,6 +764,33 @@ function Chat() {
                                 </div>
                             )}
 
+                            {/* Pinned Messages Bar */}
+                            {pinnedMessages.length > 0 && (
+                                <div style={styles.pinnedBar}>
+                                    {pinnedMessages.map((pin) => (
+                                        <div
+                                            key={pin._id}
+                                            style={styles.pinnedItem}
+                                            onClick={() => scrollToMessage(pin._id)}
+                                        >
+                                            <span style={styles.pinnedIcon}>📌</span>
+                                            <span style={styles.pinnedText}>
+                                                {pin.content?.length > 40
+                                                    ? pin.content.substring(0, 40) + "..."
+                                                    : pin.content}
+                                            </span>
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); handleUnpinMessage(pin._id); }}
+                                                style={styles.unpinBtn}
+                                                title="Unpin"
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
                             {/* Messages Area */}
                             <div style={styles.messagesArea}>
                                 {loadingMessages ? (
@@ -803,6 +865,19 @@ function Chat() {
                                                             title="React"
                                                         >
                                                             😊
+                                                        </button>
+                                                        <button
+                                                            onClick={() => {
+                                                                const isPinned = pinnedMessages.some(p => p._id === msg._id);
+                                                                isPinned ? handleUnpinMessage(msg._id) : handlePinMessage(msg._id);
+                                                            }}
+                                                            style={{
+                                                                ...styles.actionBtn,
+                                                                ...(pinnedMessages.some(p => p._id === msg._id) ? { color: '#facc15' } : {}),
+                                                            }}
+                                                            title={pinnedMessages.some(p => p._id === msg._id) ? "Unpin" : "Pin"}
+                                                        >
+                                                            📌
                                                         </button>
                                                         {isOwn && (
                                                             <>
@@ -1608,6 +1683,44 @@ const styles = {
         outline: "2px solid rgba(255, 255, 0, 0.8)",
         outlineOffset: "-2px",
         boxShadow: "0 0 12px rgba(255, 255, 0, 0.3)",
+    },
+
+    /* Pinned Messages */
+    pinnedBar: {
+        borderBottom: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(250, 204, 21, 0.06)",
+        maxHeight: "120px",
+        overflowY: "auto",
+    },
+    pinnedItem: {
+        display: "flex",
+        alignItems: "center",
+        gap: "8px",
+        padding: "8px 16px",
+        cursor: "pointer",
+        transition: "background 0.15s",
+    },
+    pinnedIcon: {
+        fontSize: "14px",
+        flexShrink: 0,
+    },
+    pinnedText: {
+        flex: 1,
+        fontSize: "13px",
+        color: "rgba(255,255,255,0.7)",
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+    },
+    unpinBtn: {
+        background: "transparent",
+        border: "none",
+        color: "rgba(255,255,255,0.35)",
+        fontSize: "12px",
+        cursor: "pointer",
+        padding: "2px 6px",
+        borderRadius: "4px",
+        flexShrink: 0,
     },
 };
 

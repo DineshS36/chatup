@@ -7,7 +7,9 @@ const {
   createGroupChat,
   addToGroup,
   removeFromGroup,
-  markChatAsRead
+  markChatAsRead,
+  pinMessage,
+  unpinMessage
 } = require('../controllers/chatController');
 const auth = require('../middleware/auth');
 
@@ -21,6 +23,8 @@ router.get('/user/:userId', getChatsByUserId);
 router.get('/:id', getChat);
 router.post('/', createChat);
 router.post('/group', createGroupChat);
+router.post('/:chatId/pin', pinMessage);
+router.delete('/:chatId/pin/:messageId', unpinMessage);
 router.put('/:chatId/read', markChatAsRead);
 router.put('/:id/add', addToGroup);
 router.put('/:id/remove', removeFromGroup);

@@ -11,6 +11,7 @@ exports.getChats = async (req, res, next) => {
       .populate('participants', 'name email profilePic status lastSeen')
       .populate('admin', 'name email profilePic')
       .populate('lastMessage')
+      .populate('pinnedMessages', 'content senderId')
       .sort({ updatedAt: -1 });
 
     res.json({
@@ -317,6 +318,83 @@ exports.markChatAsRead = async (req, res, next) => {
       success: true,
       message: 'Chat marked as read'
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Pin a message in chat
+// @route   POST /api/chats/:chatId/pin
+// @access  Private
+exports.pinMessage = async (req, res, next) => {
+  try {
+    const { messageId } = req.body;
+    const chat = await Chat.findById(req.params.chatId);
+
+    if (!chat) {
+      const error = new Error('Chat not found');
+      error.status = 404;
+      throw error;
+    }
+
+    // Prevent duplicates
+    if (chat.pinnedMessages.some(id => id.toString() === messageId)) {
+      return res.json({ success: true, data: chat.pinnedMessages });
+    }
+
+    // Limit to 3 pinned messages
+    if (chat.pinnedMessages.length >= 3) {
+      const error = new Error('Maximum 3 pinned messages allowed');
+      error.status = 400;
+      throw error;
+    }
+
+    chat.pinnedMessages.push(messageId);
+    await chat.save();
+
+    const populated = await Chat.findById(chat._id)
+      .populate('pinnedMessages', 'content senderId');
+
+    // Emit socket event
+    const io = req.app.get('io');
+    if (io) {
+      io.to(chat._id.toString()).emit('pinned_updated', populated.pinnedMessages);
+    }
+
+    res.json({ success: true, data: populated.pinnedMessages });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Unpin a message from chat
+// @route   DELETE /api/chats/:chatId/pin/:messageId
+// @access  Private
+exports.unpinMessage = async (req, res, next) => {
+  try {
+    const chat = await Chat.findById(req.params.chatId);
+
+    if (!chat) {
+      const error = new Error('Chat not found');
+      error.status = 404;
+      throw error;
+    }
+
+    chat.pinnedMessages = chat.pinnedMessages.filter(
+      (id) => id.toString() !== req.params.messageId
+    );
+    await chat.save();
+
+    const populated = await Chat.findById(chat._id)
+      .populate('pinnedMessages', 'content senderId');
+
+    // Emit socket event
+    const io = req.app.get('io');
+    if (io) {
+      io.to(chat._id.toString()).emit('pinned_updated', populated.pinnedMessages);
+    }
+
+    res.json({ success: true, data: populated.pinnedMessages });
   } catch (error) {
     next(error);
   }
