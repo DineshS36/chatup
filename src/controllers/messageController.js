@@ -357,3 +357,58 @@ exports.reactToMessage = async (req, res, next) => {
     next(error);
   }
 };
+
+// @desc    Upload file and create message
+// @route   POST /api/messages/upload
+// @access  Private
+exports.uploadFile = async (req, res, next) => {
+  try {
+    if (!req.file) {
+      const error = new Error('No file uploaded');
+      error.status = 400;
+      throw error;
+    }
+
+    const { chatId, receiverId } = req.body;
+
+    if (!chatId || !receiverId) {
+      const error = new Error('chatId and receiverId are required');
+      error.status = 400;
+      throw error;
+    }
+
+    const isImage = req.file.mimetype.startsWith('image');
+    const subDir = isImage ? 'images' : 'files';
+    const fileUrl = `/uploads/${subDir}/${req.file.filename}`;
+
+    const message = await Message.create({
+      chatId,
+      senderId: req.userId,
+      receiverId,
+      content: fileUrl,
+      type: isImage ? 'image' : 'file',
+      fileName: req.file.originalname,
+      status: 'sent'
+    });
+
+    // Update chat's lastMessage
+    await Chat.findByIdAndUpdate(chatId, { lastMessage: message._id });
+
+    const populatedMessage = await Message.findById(message._id)
+      .populate('senderId', 'username email avatar')
+      .populate('receiverId', 'username email avatar');
+
+    // Emit socket event
+    const io = req.app.get('io');
+    if (io) {
+      io.to(chatId).emit('receive_message', populatedMessage);
+    }
+
+    res.status(201).json({
+      success: true,
+      data: populatedMessage
+    });
+  } catch (error) {
+    next(error);
+  }
+};

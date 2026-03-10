@@ -6,9 +6,11 @@ const {
   editMessage,
   deleteMessage,
   searchMessages,
-  reactToMessage
+  reactToMessage,
+  uploadFile
 } = require('../controllers/messageController');
 const auth = require('../middleware/auth');
+const upload = require('../middleware/upload');
 
 const router = express.Router();
 
@@ -17,6 +19,7 @@ router.use(auth);
 
 router.get('/search/:chatId', searchMessages);
 router.get('/:chatId', getMessages);
+router.post('/upload', upload.single('file'), uploadFile);
 router.post('/', sendMessage);
 router.post('/:id/react', reactToMessage);
 router.put('/read/:chatId', markAsRead);

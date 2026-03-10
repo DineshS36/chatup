@@ -28,6 +28,7 @@ function Chat() {
     const messagesEndRef = useRef(null);
     const typingTimeoutRef = useRef(null);
     const messageRefs = useRef({});
+    const fileInputRef = useRef(null);
     const navigate = useNavigate();
 
     // Get current user from localStorage
@@ -496,6 +497,35 @@ function Chat() {
         }
     };
 
+    // ─── File upload handler ───
+    const handleFileUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file || !selectedChatId) return;
+
+        const selectedChat = chats.find((c) => c._id === selectedChatId);
+        const otherUser = selectedChat?.participants?.find(
+            (p) => p._id !== user._id
+        );
+        if (!otherUser && !selectedChat?.isGroupChat) return;
+
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("chatId", selectedChatId);
+        formData.append("receiverId", otherUser?._id || "");
+
+        try {
+            await API.post("/messages/upload", formData, {
+                headers: { "Content-Type": "multipart/form-data" },
+            });
+            fetchChats();
+        } catch (error) {
+            console.error("File upload failed", error);
+        }
+
+        // Reset file input
+        if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+
     // ─── Helpers ───
     const getChatName = (chat) => {
         if (chat.isGroupChat) return chat.name;
@@ -944,7 +974,27 @@ function Chat() {
                                                             ...styles.messageContent,
                                                             ...(msg.deleted ? { fontStyle: "italic", opacity: 0.7 } : {})
                                                         }}>
-                                                            {msg.content}
+                                                            {msg.deleted ? msg.content
+                                                                : msg.type === "image" ? (
+                                                                    <img
+                                                                        src={`http://localhost:5000${msg.content}`}
+                                                                        alt={msg.fileName || "Image"}
+                                                                        style={styles.messageImage}
+                                                                        onClick={() => window.open(`http://localhost:5000${msg.content}`, '_blank')}
+                                                                    />
+                                                                ) : msg.type === "file" ? (
+                                                                    <a
+                                                                        href={`http://localhost:5000${msg.content}`}
+                                                                        target="_blank"
+                                                                        rel="noopener noreferrer"
+                                                                        style={styles.fileLink}
+                                                                        download
+                                                                    >
+                                                                        <span style={styles.fileIcon}>📄</span>
+                                                                        <span style={styles.fileName}>{msg.fileName || "File"}</span>
+                                                                    </a>
+                                                                ) : msg.content
+                                                            }
                                                         </p>
                                                         <div style={styles.messageFooter}>
                                                             <span style={styles.messageTime}>
@@ -1031,6 +1081,19 @@ function Chat() {
                                     </div>
                                 )}
                                 <div style={styles.inputBar}>
+                                    <input
+                                        type="file"
+                                        ref={fileInputRef}
+                                        onChange={handleFileUpload}
+                                        style={{ display: 'none' }}
+                                    />
+                                    <button
+                                        onClick={() => fileInputRef.current?.click()}
+                                        style={styles.attachBtn}
+                                        title="Attach file"
+                                    >
+                                        📎
+                                    </button>
                                     <input
                                         value={messageText}
                                         onChange={handleInputChange}
@@ -1721,6 +1784,48 @@ const styles = {
         padding: "2px 6px",
         borderRadius: "4px",
         flexShrink: 0,
+    },
+
+    /* File / Image Messages */
+    messageImage: {
+        maxWidth: "100%",
+        maxHeight: "280px",
+        borderRadius: "8px",
+        cursor: "pointer",
+        objectFit: "cover",
+        display: "block",
+    },
+    fileLink: {
+        display: "flex",
+        alignItems: "center",
+        gap: "8px",
+        color: "#a5b4fc",
+        textDecoration: "none",
+        padding: "8px 12px",
+        background: "rgba(255,255,255,0.06)",
+        borderRadius: "8px",
+        border: "1px solid rgba(255,255,255,0.1)",
+        transition: "background 0.15s",
+    },
+    fileIcon: {
+        fontSize: "22px",
+        flexShrink: 0,
+    },
+    fileName: {
+        fontSize: "13px",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        maxWidth: "200px",
+    },
+    attachBtn: {
+        background: "transparent",
+        border: "none",
+        fontSize: "20px",
+        cursor: "pointer",
+        padding: "6px",
+        flexShrink: 0,
+        borderRadius: "8px",
     },
 };
 
