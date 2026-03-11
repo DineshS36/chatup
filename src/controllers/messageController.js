@@ -412,3 +412,85 @@ exports.uploadFile = async (req, res, next) => {
     next(error);
   }
 };
+
+// @desc    Forward a message to another chat
+// @route   POST /api/messages/forward
+// @access  Private
+exports.forwardMessage = async (req, res, next) => {
+  try {
+    const { messageId, targetChatId } = req.body;
+
+    if (!messageId || !targetChatId) {
+      const error = new Error('messageId and targetChatId are required');
+      error.status = 400;
+      throw error;
+    }
+
+    // Find original message
+    const originalMessage = await Message.findById(messageId);
+    if (!originalMessage) {
+      const error = new Error('Original message not found');
+      error.status = 404;
+      throw error;
+    }
+
+    // Find target chat to ensure it exists and get receiverId
+    const targetChat = await Chat.findById(targetChatId);
+    if (!targetChat) {
+      const error = new Error('Target chat not found');
+      error.status = 404;
+      throw error;
+    }
+
+    // Check if user is participant in target chat
+    const isParticipant = targetChat.participants.some(
+      (p) => p.toString() === req.userId
+    );
+    if (!isParticipant) {
+      const error = new Error('Not authorized to send messages in target chat');
+      error.status = 403;
+      throw error;
+    }
+
+    // Determine receiverId (for 1-on-1 chats)
+    let receiverId = targetChat.participants.find(
+      (p) => p.toString() !== req.userId
+    );
+    if (!receiverId && targetChat.isGroupChat) {
+      receiverId = targetChat.participants[0]; // fallback for group chats
+    }
+
+    // Create new message
+    const newMessage = await Message.create({
+      chatId: targetChatId,
+      senderId: req.userId,
+      receiverId,
+      content: originalMessage.content,
+      type: originalMessage.type,
+      fileName: originalMessage.fileName,
+      forwarded: true,
+      status: 'sent'
+    });
+
+    // Update chat's lastMessage
+    targetChat.lastMessage = newMessage._id;
+    await targetChat.save();
+
+    const populatedMessage = await Message.findById(newMessage._id)
+      .populate('senderId', 'username email avatar')
+      .populate('receiverId', 'username email avatar');
+
+    // Emit socket event
+    const io = req.app.get('io');
+    if (io) {
+      io.to(targetChatId.toString()).emit('receive_message', populatedMessage);
+    }
+
+    res.status(201).json({
+      success: true,
+      data: populatedMessage
+    });
+  } catch (error) {
+    next(error);
+  }
+};

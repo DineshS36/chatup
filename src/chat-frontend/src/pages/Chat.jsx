@@ -23,6 +23,7 @@ function Chat() {
     const [showSearch, setShowSearch] = useState(false);
     const [pinnedMessages, setPinnedMessages] = useState([]);
     const [previewImage, setPreviewImage] = useState(null);
+    const [forwardMessageId, setForwardMessageId] = useState(null);
     const [loadingMessages, setLoadingMessages] = useState(false);
     const [isTyping, setIsTyping] = useState(false);
     const [onlineStatuses, setOnlineStatuses] = useState({});
@@ -428,6 +429,20 @@ function Chat() {
         navigator.clipboard.writeText(text).then(() => {
             setSelectedMessages([]);
         });
+    };
+
+    // ─── Forward Message handler ───
+    const handleForwardMessage = async (targetChatId) => {
+        if (!forwardMessageId || !targetChatId) return;
+        try {
+            await API.post("/messages/forward", {
+                messageId: forwardMessageId,
+                targetChatId
+            });
+            setForwardMessageId(null);
+        } catch (error) {
+            console.error("Failed to forward message", error);
+        }
     };
 
     // ─── Search handlers ───
@@ -902,6 +917,13 @@ function Chat() {
                                                             😊
                                                         </button>
                                                         <button
+                                                            onClick={() => setForwardMessageId(msg._id)}
+                                                            style={styles.actionBtn}
+                                                            title="Forward message"
+                                                        >
+                                                            ➡️
+                                                        </button>
+                                                        <button
                                                             onClick={() => {
                                                                 const isPinned = pinnedMessages.some(p => p._id === msg._id);
                                                                 isPinned ? handleUnpinMessage(msg._id) : handlePinMessage(msg._id);
@@ -963,6 +985,11 @@ function Chat() {
                                                                 : {}),
                                                         }}
                                                     >
+                                                        {msg.forwarded && (
+                                                            <div style={styles.forwardedLabel}>
+                                                                <span style={{ fontSize: '11px', marginRight: '4px' }}>↪</span> Forwarded
+                                                            </div>
+                                                        )}
                                                         {msg.replyTo && (
                                                             <div style={styles.replyPreviewBubble}>
                                                                 <span style={styles.replyPreviewName}>
@@ -1171,6 +1198,34 @@ function Chat() {
                         >
                             ⬇ Download
                         </a>
+                    </div>
+                )}
+
+                {/* Forward Message Modal */}
+                {forwardMessageId && (
+                    <div style={styles.modalOverlay}>
+                        <div style={styles.modalContent}>
+                            <h3 style={{ margin: "0 0 16px" }}>Forward Message to...</h3>
+                            <div style={styles.forwardChatList}>
+                                {chats.map(chat => (
+                                    <div
+                                        key={chat._id}
+                                        style={styles.forwardChatItem}
+                                        onClick={() => handleForwardMessage(chat._id)}
+                                    >
+                                        <div style={styles.chatAvatar}>
+                                            {chat.isGroupChat ? "👥" : "👤"}
+                                        </div>
+                                        <span style={{ color: "#fff", flex: 1 }}>{getChatName(chat)}</span>
+                                    </div>
+                                ))}
+                            </div>
+                            <div style={styles.modalActions}>
+                                <button onClick={() => setForwardMessageId(null)} style={styles.modalBtn}>
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 )}
 
@@ -1398,6 +1453,34 @@ const styles = {
     },
     emptyState: {
         textAlign: "center",
+    },
+
+    /* Forward Modal */
+    forwardedLabel: {
+        fontSize: "11px",
+        color: "rgba(255,255,255,0.5)",
+        fontStyle: "italic",
+        display: "flex",
+        alignItems: "center",
+        marginBottom: "4px",
+    },
+    forwardChatList: {
+        maxHeight: "300px",
+        overflowY: "auto",
+        display: "flex",
+        flexDirection: "column",
+        gap: "4px",
+        marginBottom: "16px",
+    },
+    forwardChatItem: {
+        display: "flex",
+        alignItems: "center",
+        padding: "10px",
+        borderRadius: "8px",
+        background: "rgba(255,255,255,0.05)",
+        cursor: "pointer",
+        transition: "background 0.2s",
+        gap: "12px",
     },
 
     /* Messages */
