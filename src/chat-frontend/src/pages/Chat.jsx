@@ -22,6 +22,7 @@ function Chat() {
     const [currentResultIndex, setCurrentResultIndex] = useState(0);
     const [showSearch, setShowSearch] = useState(false);
     const [pinnedMessages, setPinnedMessages] = useState([]);
+    const [previewImage, setPreviewImage] = useState(null);
     const [loadingMessages, setLoadingMessages] = useState(false);
     const [isTyping, setIsTyping] = useState(false);
     const [onlineStatuses, setOnlineStatuses] = useState({});
@@ -665,6 +666,10 @@ function Chat() {
                     20% { opacity: 1; }
                     100% { opacity: 0.2; }
                 }
+                @keyframes fadeIn {
+                    from { opacity: 0; }
+                    to { opacity: 1; }
+                }
                 .msg-row:hover .msg-actions {
                     opacity: 1 !important;
                 }
@@ -980,7 +985,7 @@ function Chat() {
                                                                         src={`http://localhost:5000${msg.content}`}
                                                                         alt={msg.fileName || "Image"}
                                                                         style={styles.messageImage}
-                                                                        onClick={() => window.open(`http://localhost:5000${msg.content}`, '_blank')}
+                                                                        onClick={() => setPreviewImage(msg.content)}
                                                                     />
                                                                 ) : msg.type === "file" ? (
                                                                     <a
@@ -1136,6 +1141,37 @@ function Chat() {
                         onClose={() => setShowUserList(false)}
                         onChatCreated={handleChatCreated}
                     />
+                )}
+
+                {/* Image Preview Modal */}
+                {previewImage && (
+                    <div
+                        style={styles.imagePreviewOverlay}
+                        onClick={() => setPreviewImage(null)}
+                    >
+                        <button
+                            onClick={() => setPreviewImage(null)}
+                            style={styles.imagePreviewClose}
+                        >
+                            ✕
+                        </button>
+                        <img
+                            src={`http://localhost:5000${previewImage}`}
+                            alt="Preview"
+                            style={styles.imagePreviewImg}
+                            onClick={(e) => e.stopPropagation()}
+                        />
+                        <a
+                            href={`http://localhost:5000${previewImage}`}
+                            download
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={styles.imagePreviewDownload}
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            ⬇ Download
+                        </a>
+                    </div>
                 )}
 
                 {/* Delete Confirmation Modal */}
@@ -1826,6 +1862,58 @@ const styles = {
         padding: "6px",
         flexShrink: 0,
         borderRadius: "8px",
+    },
+
+    /* Image Preview Modal */
+    imagePreviewOverlay: {
+        position: "fixed",
+        top: 0,
+        left: 0,
+        width: "100%",
+        height: "100%",
+        background: "rgba(0, 0, 0, 0.85)",
+        backdropFilter: "blur(8px)",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        alignItems: "center",
+        zIndex: 9999,
+        gap: "16px",
+        animation: "fadeIn 0.2s ease",
+    },
+    imagePreviewImg: {
+        maxWidth: "90%",
+        maxHeight: "80vh",
+        borderRadius: "12px",
+        objectFit: "contain",
+        boxShadow: "0 8px 40px rgba(0,0,0,0.5)",
+    },
+    imagePreviewClose: {
+        position: "absolute",
+        top: "20px",
+        right: "24px",
+        background: "rgba(255,255,255,0.1)",
+        border: "1px solid rgba(255,255,255,0.2)",
+        color: "#fff",
+        fontSize: "20px",
+        width: "40px",
+        height: "40px",
+        borderRadius: "50%",
+        cursor: "pointer",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        transition: "background 0.15s",
+    },
+    imagePreviewDownload: {
+        color: "rgba(255,255,255,0.7)",
+        textDecoration: "none",
+        fontSize: "13px",
+        padding: "8px 16px",
+        borderRadius: "8px",
+        background: "rgba(255,255,255,0.08)",
+        border: "1px solid rgba(255,255,255,0.15)",
+        transition: "background 0.15s",
     },
 };
 
