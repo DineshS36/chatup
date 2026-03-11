@@ -636,8 +636,9 @@ function Chat() {
     };
 
     const getInitial = (chat) => {
+        if (chat.isGroupChat) return "👥";
         const name = getChatName(chat);
-        return name.charAt(0).toUpperCase();
+        return name ? name.charAt(0).toUpperCase() : "?";
     };
 
     const formatLastSeen = (dateStr) => {
@@ -1071,6 +1072,11 @@ function Chat() {
                                                                 : {}),
                                                         }}
                                                     >
+                                                        {selectedChat?.isGroupChat && !isOwn && isFirst && (
+                                                            <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.6)", marginBottom: "4px", fontWeight: 600 }}>
+                                                                {msg.senderId?.name || "User"}
+                                                            </div>
+                                                        )}
                                                         {msg.forwarded && (
                                                             <div style={styles.forwardedLabel}>
                                                                 <span style={{ fontSize: '11px', marginRight: '4px' }}>↪</span> Forwarded

@@ -168,6 +168,14 @@ exports.createGroupChat = async (req, res, next) => {
       .populate('participants', 'name email profilePic status lastSeen')
       .populate('admin', 'name email profilePic');
 
+    // Emit socket event to all participants
+    const io = req.app.get('io');
+    if (io) {
+      chat.participants.forEach((pId) => {
+        io.to(pId.toString()).emit('chat_created', populatedChat);
+      });
+    }
+
     res.status(201).json({
       success: true,
       data: populatedChat

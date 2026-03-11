@@ -7,6 +7,10 @@ function UserList({ onClose, onChatCreated }) {
     const [creating, setCreating] = useState(null);
     const [error, setError] = useState("");
 
+    const [groupMode, setGroupMode] = useState(false);
+    const [groupName, setGroupName] = useState("");
+    const [selectedUsers, setSelectedUsers] = useState([]);
+
     const currentUser = JSON.parse(localStorage.getItem("user") || "{}");
 
     useEffect(() => {
@@ -30,12 +34,39 @@ function UserList({ onClose, onChatCreated }) {
     };
 
     const handleUserClick = async (userId) => {
+        if (groupMode) {
+            setSelectedUsers(prev =>
+                prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
+            );
+            return;
+        }
+
         try {
             setCreating(userId);
             const res = await API.post("/chats", { userId });
             onChatCreated(res.data.data);
         } catch (err) {
             setError("Failed to create chat");
+        } finally {
+            setCreating(null);
+        }
+    };
+
+    const handleCreateGroup = async () => {
+        if (!groupName.trim() || selectedUsers.length < 1) {
+            setError("Group name and at least 1 other user required.");
+            return;
+        }
+
+        try {
+            setCreating("group");
+            const res = await API.post("/chats/group", {
+                name: groupName,
+                participants: selectedUsers
+            });
+            onChatCreated(res.data.data);
+        } catch (err) {
+            setError("Failed to create group");
         } finally {
             setCreating(null);
         }
@@ -48,7 +79,7 @@ function UserList({ onClose, onChatCreated }) {
             <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
                 {/* Header */}
                 <div style={styles.header}>
-                    <h3 style={styles.title}>New Chat</h3>
+                    <h3 style={styles.title}>{groupMode ? "New Group Chat" : "New Chat"}</h3>
                     <button onClick={onClose} style={styles.closeBtn}>
                         ✕
                     </button>
@@ -56,6 +87,28 @@ function UserList({ onClose, onChatCreated }) {
 
                 {/* Content */}
                 <div style={styles.body}>
+                    {!groupMode && (
+                        <button
+                            style={styles.newGroupBtn}
+                            onClick={() => setGroupMode(true)}
+                        >
+                            <div style={styles.newGroupIcon}>👥</div>
+                            <span style={styles.newGroupText}>New Group Chat</span>
+                        </button>
+                    )}
+
+                    {groupMode && (
+                        <div style={styles.groupInputContainer}>
+                            <input
+                                autoFocus
+                                value={groupName}
+                                onChange={(e) => setGroupName(e.target.value)}
+                                placeholder="Group Subject"
+                                style={styles.groupInput}
+                            />
+                        </div>
+                    )}
+
                     {loading ? (
                         <p style={styles.placeholder}>Loading users...</p>
                     ) : error ? (
@@ -71,6 +124,8 @@ function UserList({ onClose, onChatCreated }) {
                                     ...styles.userItem,
                                     opacity: creating === u._id ? 0.5 : 1,
                                     pointerEvents: creating ? "none" : "auto",
+                                    background: selectedUsers.includes(u._id) ? "rgba(102, 126, 234, 0.2)" : "transparent",
+                                    border: selectedUsers.includes(u._id) ? "1px solid #667eea" : "1px solid transparent",
                                 }}
                             >
                                 <div style={styles.avatar}>
@@ -80,19 +135,44 @@ function UserList({ onClose, onChatCreated }) {
                                     <span style={styles.userName}>{u.name}</span>
                                     <span style={styles.userEmail}>{u.email}</span>
                                 </div>
-                                <span
-                                    style={{
-                                        ...styles.statusDot,
-                                        background:
-                                            u.status === "online"
-                                                ? "#34d399"
-                                                : "rgba(255,255,255,0.2)",
-                                    }}
-                                />
+                                {groupMode && (
+                                    <div style={{
+                                        ...styles.checkbox,
+                                        background: selectedUsers.includes(u._id) ? "#667eea" : "transparent",
+                                        borderColor: selectedUsers.includes(u._id) ? "#667eea" : "rgba(255,255,255,0.3)"
+                                    }}>
+                                        {selectedUsers.includes(u._id) && "✓"}
+                                    </div>
+                                )}
+                                {!groupMode && (
+                                    <span
+                                        style={{
+                                            ...styles.statusDot,
+                                            background:
+                                                u.status === "online"
+                                                    ? "#34d399"
+                                                    : "rgba(255,255,255,0.2)",
+                                        }}
+                                    />
+                                )}
                             </div>
                         ))
                     )}
                 </div>
+                {groupMode && (
+                    <div style={styles.footer}>
+                        <button
+                            style={{
+                                ...styles.createGroupBtn,
+                                opacity: (!groupName.trim() || selectedUsers.length < 1 || creating) ? 0.5 : 1,
+                            }}
+                            disabled={!groupName.trim() || selectedUsers.length < 1 || creating}
+                            onClick={handleCreateGroup}
+                        >
+                            {creating === "group" ? "Creating..." : `Create Group (${selectedUsers.length})`}
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -212,6 +292,77 @@ const styles = {
         padding: "40px 20px",
         fontSize: "14px",
     },
+    newGroupBtn: {
+        display: "flex",
+        alignItems: "center",
+        gap: "14px",
+        padding: "14px 16px",
+        borderRadius: "12px",
+        cursor: "pointer",
+        background: "rgba(102, 126, 234, 0.1)",
+        border: "1px solid rgba(102, 126, 234, 0.2)",
+        marginBottom: "16px",
+        width: "100%",
+        transition: "all 0.2s",
+    },
+    newGroupIcon: {
+        width: "44px",
+        height: "44px",
+        borderRadius: "14px",
+        background: "#667eea",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: "18px",
+    },
+    newGroupText: {
+        fontWeight: 600,
+        fontSize: "15px",
+        color: "#fff",
+    },
+    groupInputContainer: {
+        padding: "0 16px 16px",
+        borderBottom: "1px solid rgba(255,255,255,0.08)",
+        marginBottom: "8px",
+    },
+    groupInput: {
+        width: "100%",
+        boxSizing: "border-box",
+        padding: "12px 16px",
+        borderRadius: "12px",
+        background: "rgba(0,0,0,0.2)",
+        border: "1px solid rgba(255,255,255,0.1)",
+        color: "#fff",
+        fontSize: "15px",
+        outline: "none",
+    },
+    checkbox: {
+        width: "20px",
+        height: "20px",
+        borderRadius: "50%",
+        border: "2px solid",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: "12px",
+        color: "#fff",
+        flexShrink: 0,
+    },
+    footer: {
+        padding: "16px",
+        borderTop: "1px solid rgba(255,255,255,0.08)",
+    },
+    createGroupBtn: {
+        width: "100%",
+        padding: "14px",
+        borderRadius: "12px",
+        background: "linear-gradient(135deg, #667eea, #764ba2)",
+        border: "none",
+        color: "#fff",
+        fontWeight: 600,
+        fontSize: "15px",
+        cursor: "pointer",
+    }
 };
 
 export default UserList;
