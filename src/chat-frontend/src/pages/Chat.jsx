@@ -1182,6 +1182,13 @@ function Chat() {
                         <h2 style={styles.sidebarTitle}>💬 Chats</h2>
                         <div style={{ display: "flex", gap: "8px" }}>
                             <button
+                                onClick={() => navigate("/status")}
+                                style={{ ...styles.newChatBtn, background: "rgba(16,185,129,0.2)", color: "#10b981", borderColor: "rgba(16,185,129,0.3)" }}
+                                title="Status"
+                            >
+                                ⭕
+                            </button>
+                            <button
                                 onClick={() => setShowUserList(true)}
                                 style={styles.newChatBtn}
                                 title="New Chat"
