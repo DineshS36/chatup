@@ -28,6 +28,10 @@ function Chat() {
     const [isTyping, setIsTyping] = useState(false);
     const [onlineStatuses, setOnlineStatuses] = useState({});
 
+    // Group Management State
+    const [showGroupInfo, setShowGroupInfo] = useState(false);
+    const [groupToAddUsers, setGroupToAddUsers] = useState(null);
+
     // Voice Recording State
     const [isRecording, setIsRecording] = useState(false);
     const [recordingDuration, setRecordingDuration] = useState(0);
@@ -171,6 +175,26 @@ function Chat() {
         socket.on("reaction_updated", handleReactionUpdated);
         socket.on("pinned_updated", handlePinnedUpdated);
 
+        const handleGroupUpdated = (updatedChat) => {
+            setChats((prev) => {
+                const exists = prev.some(c => c._id === updatedChat._id);
+                if (exists) return prev.map(c => c._id === updatedChat._id ? updatedChat : c);
+                return [updatedChat, ...prev];
+            });
+        };
+
+        const handleUserLeft = (data) => {
+            if (data && data._id && !data.participants) {
+                setChats((prev) => prev.filter(c => c._id !== data._id));
+                if (selectedChatId === data._id) setSelectedChatId(null);
+            } else if (data) {
+                handleGroupUpdated(data);
+            }
+        };
+
+        socket.on("user_joined_group", handleGroupUpdated);
+        socket.on("user_left_group", handleUserLeft);
+
         return () => {
             socket.off("receive_message", handleReceive);
             socket.off("message_delivered", handleDelivered);
@@ -182,6 +206,8 @@ function Chat() {
             socket.off("message_deleted", handleMessageDeleted);
             socket.off("reaction_updated", handleReactionUpdated);
             socket.off("pinned_updated", handlePinnedUpdated);
+            socket.off("user_joined_group", handleGroupUpdated);
+            socket.off("user_left_group", handleUserLeft);
         };
     }, [selectedChatId]);
 
@@ -749,6 +775,41 @@ function Chat() {
         fetchChats();
     };
 
+    // ─── Group Management Handlers ───
+    const handleLeaveGroup = async () => {
+        if (!window.confirm("Are you sure you want to leave this group?")) return;
+        try {
+            await API.put(`/chats/${selectedChatId}/leave`);
+            setShowGroupInfo(false);
+            setSelectedChatId(null);
+            fetchChats();
+        } catch (error) {
+            console.error("Failed to leave group:", error);
+            alert("Could not leave group.");
+        }
+    };
+
+    const handleRemoveParticipant = async (participantId) => {
+        if (!window.confirm("Remove this user from the group?")) return;
+        try {
+            await API.put(`/chats/${selectedChatId}/remove`, { userId: participantId });
+            // The socket 'user_left_group' will trigger the state refresh naturally
+        } catch (error) {
+            console.error("Failed to remove participant:", error);
+            alert("Could not remove participant.");
+        }
+    };
+
+    const handleUserAddedToGroup = async (userId) => {
+        try {
+            await API.put(`/chats/${groupToAddUsers}/add`, { userId });
+            setGroupToAddUsers(null);
+        } catch (error) {
+            console.error("Failed to add user to group:", error);
+            alert("Could not add user. User might already be in the group.");
+        }
+    };
+
     const selectedChat = chats.find((c) => c._id === selectedChatId);
 
     // Load pinned messages when chat changes
@@ -870,6 +931,15 @@ function Chat() {
                                 >
                                     🔍
                                 </button>
+                                {selectedChat?.isGroupChat && (
+                                    <button
+                                        onClick={() => setShowGroupInfo(true)}
+                                        style={styles.searchToggleBtn}
+                                        title="Group Info"
+                                    >
+                                        ℹ️
+                                    </button>
+                                )}
                             </div>
 
                             {/* Search Bar */}
@@ -967,6 +1037,24 @@ function Chat() {
                                             if (isFirst) groupedRadius = { borderBottomLeftRadius: "4px" };
                                             else if (isMiddle) groupedRadius = { borderTopLeftRadius: "4px", borderBottomLeftRadius: "4px" };
                                             else if (isLast) groupedRadius = { borderTopLeftRadius: "4px" };
+                                        }
+
+                                        if (msg.type === "system") {
+                                            return (
+                                                <div key={msg._id} style={{ display: "flex", justifyContent: "center", margin: "12px 0" }}>
+                                                    <div style={{
+                                                        background: "rgba(255,255,255,0.05)",
+                                                        padding: "6px 16px",
+                                                        borderRadius: "16px",
+                                                        fontSize: "12px",
+                                                        color: "rgba(255,255,255,0.5)",
+                                                        fontStyle: "italic",
+                                                        userSelect: "none"
+                                                    }}>
+                                                        {msg.content}
+                                                    </div>
+                                                </div>
+                                            );
                                         }
 
                                         return (
@@ -1368,6 +1456,103 @@ function Chat() {
                                     Delete
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Group Info Modal */}
+                {showGroupInfo && selectedChat?.isGroupChat && (
+                    <div style={styles.modalOverlay} onClick={() => setShowGroupInfo(false)}>
+                        <div style={{ ...styles.modalContent, maxWidth: "440px", maxHeight: "80vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+                                <h3 style={{ margin: 0, color: "#fff" }}>Group Info</h3>
+                                <button onClick={() => setShowGroupInfo(false)} style={{ background: "rgba(255,255,255,0.08)", border: "none", color: "rgba(255,255,255,0.6)", fontSize: "14px", width: "32px", height: "32px", borderRadius: "10px", cursor: "pointer" }}>✕</button>
+                            </div>
+
+                            {/* Group Name & Avatar */}
+                            <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "20px" }}>
+                                <div style={{ width: "60px", height: "60px", borderRadius: "18px", background: "linear-gradient(135deg, #667eea, #764ba2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "28px", flexShrink: 0 }}>
+                                    👥
+                                </div>
+                                <div>
+                                    <h4 style={{ margin: "0 0 4px", color: "#fff", fontSize: "18px" }}>{selectedChat.name}</h4>
+                                    <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "13px" }}>
+                                        {selectedChat.participants?.length || 0} participants
+                                    </span>
+                                </div>
+                            </div>
+
+                            {selectedChat.description && (
+                                <div style={{ padding: "12px 16px", background: "rgba(255,255,255,0.04)", borderRadius: "12px", marginBottom: "16px" }}>
+                                    <span style={{ fontSize: "11px", color: "rgba(255,255,255,0.4)", display: "block", marginBottom: "4px" }}>Description</span>
+                                    <span style={{ fontSize: "14px", color: "rgba(255,255,255,0.8)" }}>{selectedChat.description}</span>
+                                </div>
+                            )}
+
+                            {/* Participants List */}
+                            <div style={{ marginBottom: "16px" }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                                    <span style={{ fontSize: "13px", fontWeight: 600, color: "rgba(255,255,255,0.5)" }}>MEMBERS</span>
+                                    {(selectedChat.admin?._id === user._id || selectedChat.admin === user._id) && (
+                                        <button
+                                            onClick={() => { setGroupToAddUsers(selectedChatId); setShowGroupInfo(false); }}
+                                            style={{ background: "rgba(102,126,234,0.15)", border: "1px solid rgba(102,126,234,0.3)", color: "#667eea", fontSize: "12px", padding: "6px 12px", borderRadius: "8px", cursor: "pointer", fontWeight: 600 }}
+                                        >
+                                            + Add Member
+                                        </button>
+                                    )}
+                                </div>
+                                {selectedChat.participants?.map((p) => {
+                                    const isAdmin = (selectedChat.admin?._id || selectedChat.admin) === p._id;
+                                    const isSelf = p._id === user._id;
+                                    const canRemove = (selectedChat.admin?._id === user._id || selectedChat.admin === user._id) && !isSelf;
+                                    return (
+                                        <div key={p._id} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 12px", borderRadius: "12px", marginBottom: "2px", background: "rgba(255,255,255,0.03)" }}>
+                                            <div style={{ width: "36px", height: "36px", borderRadius: "12px", background: isAdmin ? "linear-gradient(135deg, #f59e0b, #ef4444)" : "linear-gradient(135deg, #667eea, #764ba2)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: "14px", color: "#fff", flexShrink: 0 }}>
+                                                {p.name?.charAt(0).toUpperCase() || "?"}
+                                            </div>
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                                    <span style={{ fontWeight: 600, fontSize: "14px", color: "#fff" }}>{p.name}{isSelf ? " (You)" : ""}</span>
+                                                    {isAdmin && (
+                                                        <span style={{ fontSize: "10px", background: "rgba(245,158,11,0.2)", color: "#f59e0b", padding: "2px 8px", borderRadius: "6px", fontWeight: 600 }}>Admin</span>
+                                                    )}
+                                                </div>
+                                                <span style={{ fontSize: "12px", color: "rgba(255,255,255,0.4)" }}>{p.email}</span>
+                                            </div>
+                                            {canRemove && (
+                                                <button
+                                                    onClick={() => handleRemoveParticipant(p._id)}
+                                                    style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", color: "#ef4444", fontSize: "11px", padding: "4px 10px", borderRadius: "8px", cursor: "pointer", fontWeight: 600 }}
+                                                >
+                                                    Remove
+                                                </button>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            {/* Leave Group */}
+                            <button
+                                onClick={handleLeaveGroup}
+                                style={{ width: "100%", padding: "14px", borderRadius: "12px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", color: "#ef4444", fontWeight: 600, fontSize: "15px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
+                            >
+                                🚪 Leave Group
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Add Member to Group Modal */}
+                {groupToAddUsers && (
+                    <div style={styles.modalOverlay} onClick={() => setGroupToAddUsers(null)}>
+                        <div style={{ ...styles.modalContent, maxWidth: "420px", maxHeight: "70vh", display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                                <h3 style={{ margin: 0, color: "#fff" }}>Add Member</h3>
+                                <button onClick={() => setGroupToAddUsers(null)} style={{ background: "rgba(255,255,255,0.08)", border: "none", color: "rgba(255,255,255,0.6)", fontSize: "14px", width: "32px", height: "32px", borderRadius: "10px", cursor: "pointer" }}>✕</button>
+                            </div>
+                            <AddMemberList chatId={groupToAddUsers} existingParticipants={selectedChat?.participants || []} onAdd={handleUserAddedToGroup} />
                         </div>
                     </div>
                 )}
@@ -2186,5 +2371,67 @@ const styles = {
         transition: "background 0.15s",
     },
 };
+
+// ─── Inline Add Member Component ───
+function AddMemberList({ chatId, existingParticipants, onAdd }) {
+    const [users, setUsers] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [adding, setAdding] = useState(null);
+
+    useEffect(() => {
+        const fetchUsers = async () => {
+            try {
+                const res = await API.get("/users");
+                const currentUser = JSON.parse(localStorage.getItem("user") || "{}");
+                const existingIds = existingParticipants.map(p => p._id || p);
+                const filtered = (res.data.data || []).filter(
+                    u => u._id !== currentUser._id && !existingIds.includes(u._id)
+                );
+                setUsers(filtered);
+            } catch {
+                setUsers([]);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchUsers();
+    }, [existingParticipants]);
+
+    const handleClick = async (userId) => {
+        setAdding(userId);
+        await onAdd(userId);
+        setUsers(prev => prev.filter(u => u._id !== userId));
+        setAdding(null);
+    };
+
+    if (loading) return <p style={{ color: "rgba(255,255,255,0.3)", textAlign: "center", padding: "30px" }}>Loading users...</p>;
+    if (users.length === 0) return <p style={{ color: "rgba(255,255,255,0.3)", textAlign: "center", padding: "30px" }}>No users available to add</p>;
+
+    return (
+        <div style={{ flex: 1, overflowY: "auto" }}>
+            {users.map(u => (
+                <div
+                    key={u._id}
+                    onClick={() => !adding && handleClick(u._id)}
+                    style={{
+                        display: "flex", alignItems: "center", gap: "12px", padding: "12px 14px",
+                        borderRadius: "12px", cursor: adding ? "not-allowed" : "pointer",
+                        opacity: adding === u._id ? 0.5 : 1,
+                        marginBottom: "2px", transition: "background 0.15s",
+                    }}
+                >
+                    <div style={{ width: "40px", height: "40px", borderRadius: "12px", background: "linear-gradient(135deg, #667eea, #764ba2)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: "15px", color: "#fff", flexShrink: 0 }}>
+                        {u.name?.charAt(0).toUpperCase() || "?"}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ fontWeight: 600, fontSize: "14px", color: "#fff", display: "block" }}>{u.name}</span>
+                        <span style={{ fontSize: "12px", color: "rgba(255,255,255,0.4)" }}>{u.email}</span>
+                    </div>
+                    <span style={{ fontSize: "18px", color: "#667eea" }}>+</span>
+                </div>
+            ))}
+        </div>
+    );
+}
 
 export default Chat;

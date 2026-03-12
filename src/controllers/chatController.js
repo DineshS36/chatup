@@ -225,9 +225,32 @@ exports.addToGroup = async (req, res, next) => {
     chat.participants.push(userId);
     await chat.save();
 
+    const adminUser = await User.findById(req.userId).select('name');
+    const addedUser = await User.findById(userId).select('name');
+
+    const systemMessage = await Message.create({
+      chatId: chat._id,
+      senderId: req.userId,
+      receiverId: req.userId,
+      content: `${adminUser.name} added ${addedUser.name}`,
+      type: 'system',
+      status: 'sent'
+    });
+
+    chat.lastMessage = systemMessage._id;
+    await chat.save();
+
     const populatedChat = await Chat.findById(chat._id)
       .populate('participants', 'name email profilePic status lastSeen')
       .populate('admin', 'name email profilePic');
+
+    const io = req.app.get('io');
+    if (io) {
+      chat.participants.forEach((pId) => {
+        io.to(pId.toString()).emit('receive_message', systemMessage);
+        io.to(pId.toString()).emit('user_joined_group', populatedChat);
+      });
+    }
 
     res.json({
       success: true,
@@ -270,13 +293,107 @@ exports.removeFromGroup = async (req, res, next) => {
     );
     await chat.save();
 
+    const adminUser = await User.findById(req.userId).select('name');
+    const removedUser = await User.findById(userId).select('name');
+
+    const systemMessage = await Message.create({
+      chatId: chat._id,
+      senderId: req.userId,
+      receiverId: req.userId, // fallback target
+      content: `${adminUser.name} removed ${removedUser.name}`,
+      type: 'system',
+      status: 'sent'
+    });
+
+    chat.lastMessage = systemMessage._id;
+    await chat.save();
+
     const populatedChat = await Chat.findById(chat._id)
       .populate('participants', 'name email profilePic status lastSeen')
       .populate('admin', 'name email profilePic');
 
+    const io = req.app.get('io');
+    if (io) {
+      chat.participants.forEach((pId) => {
+        io.to(pId.toString()).emit('receive_message', systemMessage);
+        io.to(pId.toString()).emit('user_left_group', populatedChat);
+      });
+      io.to(userId.toString()).emit('user_left_group', { _id: chat._id });
+    }
+
     res.json({
       success: true,
       data: populatedChat
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Leave group chat
+// @route   PUT /api/chats/:id/leave
+// @access  Private
+exports.leaveGroup = async (req, res, next) => {
+  try {
+    const chat = await Chat.findById(req.params.id);
+
+    if (!chat) {
+      const error = new Error('Chat not found');
+      error.status = 404;
+      throw error;
+    }
+
+    if (!chat.isGroupChat) {
+      const error = new Error('Cannot leave a one-on-one chat');
+      error.status = 400;
+      throw error;
+    }
+
+    const isParticipant = chat.participants.some(
+      (participant) => participant.toString() === req.userId
+    );
+
+    if (!isParticipant) {
+      const error = new Error('You are not a participant');
+      error.status = 400;
+      throw error;
+    }
+
+    chat.participants = chat.participants.filter(
+      p => p.toString() !== req.userId
+    );
+    await chat.save();
+
+    const leavingUser = await User.findById(req.userId).select('name');
+
+    const systemMessage = await Message.create({
+      chatId: chat._id,
+      senderId: req.userId,
+      receiverId: req.userId, // fallback target
+      content: `${leavingUser.name} left the group`,
+      type: 'system',
+      status: 'sent'
+    });
+
+    chat.lastMessage = systemMessage._id;
+    await chat.save();
+
+    const populatedChat = await Chat.findById(chat._id)
+      .populate('participants', 'name email profilePic status lastSeen')
+      .populate('admin', 'name email profilePic');
+
+    const io = req.app.get('io');
+    if (io) {
+      chat.participants.forEach((pId) => {
+        io.to(pId.toString()).emit('receive_message', systemMessage);
+        io.to(pId.toString()).emit('user_left_group', populatedChat);
+      });
+      io.to(req.userId.toString()).emit('user_left_group', { _id: chat._id });
+    }
+
+    res.json({
+      success: true,
+      data: chat._id
     });
   } catch (error) {
     next(error);

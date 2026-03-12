@@ -9,7 +9,8 @@ const {
   removeFromGroup,
   markChatAsRead,
   pinMessage,
-  unpinMessage
+  unpinMessage,
+  leaveGroup
 } = require('../controllers/chatController');
 const auth = require('../middleware/auth');
 
@@ -28,5 +29,6 @@ router.delete('/:chatId/pin/:messageId', unpinMessage);
 router.put('/:chatId/read', markChatAsRead);
 router.put('/:id/add', addToGroup);
 router.put('/:id/remove', removeFromGroup);
+router.put('/:id/leave', leaveGroup);
 
 module.exports = router;
