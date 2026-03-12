@@ -63,6 +63,11 @@ function Chat() {
         }
         fetchChats();
 
+        // Request browser notification permission
+        if ("Notification" in window && Notification.permission === "default") {
+            Notification.requestPermission();
+        }
+
         // Register with socket
         if (user._id) {
             socket.emit("join", user._id);
@@ -95,6 +100,27 @@ function Chat() {
                     chatId: selectedChatId,
                     userId: user._id,
                 });
+            } else {
+                // Show browser notification for messages in other chats
+                if ("Notification" in window && Notification.permission === "granted") {
+                    const senderName = message.senderId?.name || message.senderName || "Someone";
+                    const body = message.type === "image" ? "📷 Sent a photo"
+                        : message.type === "file" ? "📄 Sent a file"
+                            : message.type === "audio" ? "🎤 Sent a voice message"
+                                : message.content?.substring(0, 100) || "New message";
+
+                    const notification = new Notification(senderName, {
+                        body,
+                        icon: "/favicon.ico",
+                        tag: message.chatId, // Prevent duplicate notifications per chat
+                    });
+
+                    notification.onclick = () => {
+                        window.focus();
+                        setSelectedChatId(message.chatId);
+                        notification.close();
+                    };
+                }
             }
             fetchChats();
         };
