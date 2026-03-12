@@ -215,14 +215,15 @@ const chatSocket = async (io) => {
             socket.to(chatId).emit('user_stop_typing', { chatId, senderId });
         });
 
-        // ─── WebRTC Signaling for Audio Calls ───────────────────
-        socket.on('call_user', async ({ callerId, receiverId, callerName, chatId }) => {
+        // ─── WebRTC Signaling for Audio/Video Calls ───────────────────
+        socket.on('call_user', async ({ callerId, receiverId, callerName, chatId, callType }) => {
             const receiverSocketId = onlineUsers.get(receiverId);
             if (receiverSocketId) {
                 io.to(receiverSocketId).emit('incoming_call', {
                     callerId,
                     callerName,
-                    chatId
+                    chatId,
+                    callType
                 });
             } else {
                 // If receiver is offline, instantly reject

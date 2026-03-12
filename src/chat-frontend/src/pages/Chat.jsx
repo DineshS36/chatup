@@ -37,12 +37,18 @@ function Chat() {
     const [mentionSuggestions, setMentionSuggestions] = useState([]);
     const [showMentionDropdown, setShowMentionDropdown] = useState(false);
 
-    // WebRTC Audio Calling State
-    const [incomingCall, setIncomingCall] = useState(null); // { callerId, callerName, chatId }
+    // WebRTC Calling State
+    const [incomingCall, setIncomingCall] = useState(null); // { callerId, callerName, chatId, callType }
     const [isInCall, setIsInCall] = useState(false);
+    const [currentCallType, setCurrentCallType] = useState("audio");
     const [callPeerId, setCallPeerId] = useState(null);
+    const [isMuted, setIsMuted] = useState(false);
+    const [isVideoOff, setIsVideoOff] = useState(false);
+    const callTypeRef = useRef("audio");
     const localStreamRef = useRef(null);
     const remoteAudioRef = useRef(null);
+    const localVideoRef = useRef(null);
+    const remoteVideoRef = useRef(null);
     const peerConnectionRef = useRef(null);
 
     // Voice Recording State
@@ -251,7 +257,7 @@ function Chat() {
         const handleCallAccepted = async ({ receiverId }) => {
             setCallPeerId(receiverId);
             setIsInCall(true);
-            await setupWebRTC(receiverId, true);
+            await setupWebRTC(receiverId, true, callTypeRef.current);
         };
 
         const handleCallRejected = ({ reason }) => {
@@ -261,7 +267,7 @@ function Chat() {
 
         const handleWebRTCSignal = async ({ signal, from }) => {
             if (!peerConnectionRef.current) {
-                await setupWebRTC(from, false);
+                await setupWebRTC(from, false, callTypeRef.current);
             }
             try {
                 if (signal.type === 'offer' || signal.type === 'answer') {
@@ -313,10 +319,17 @@ function Chat() {
     }, [selectedChatId]);
 
     // ─── WebRTC Handlers ───
-    const setupWebRTC = async (targetId, isInitiator) => {
+    const setupWebRTC = async (targetId, isInitiator, type = "audio") => {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+                video: type === "video"
+            });
             localStreamRef.current = stream;
+
+            if (type === "video" && localVideoRef.current) {
+                localVideoRef.current.srcObject = stream;
+            }
 
             const pc = new RTCPeerConnection({
                 iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
@@ -332,8 +345,11 @@ function Chat() {
             };
 
             pc.ontrack = (event) => {
-                if (remoteAudioRef.current) {
-                    remoteAudioRef.current.srcObject = event.streams[0];
+                const remoteStream = event.streams[0];
+                if (type === "video" && remoteVideoRef.current) {
+                    remoteVideoRef.current.srcObject = remoteStream;
+                } else if (remoteAudioRef.current) {
+                    remoteAudioRef.current.srcObject = remoteStream;
                 }
             };
 
@@ -343,8 +359,8 @@ function Chat() {
                 socket.emit('webrtc_signal', { targetId, signal: offer });
             }
         } catch (err) {
-            console.error("Error accessing microphone:", err);
-            alert("Could not access microphone.");
+            console.error("Error accessing media devices:", err);
+            alert("Could not access camera/microphone.");
             endCallLocally();
         }
     };
@@ -353,6 +369,8 @@ function Chat() {
         setIsInCall(false);
         setIncomingCall(null);
         setCallPeerId(null);
+        setIsMuted(false);
+        setIsVideoOff(false);
 
         if (localStreamRef.current) {
             localStreamRef.current.getTracks().forEach(t => t.stop());
@@ -367,32 +385,67 @@ function Chat() {
         if (remoteAudioRef.current) {
             remoteAudioRef.current.srcObject = null;
         }
+        if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = null;
+        }
+        if (localVideoRef.current) {
+            localVideoRef.current.srcObject = null;
+        }
     };
 
-    const handleCallUser = () => {
+    const handleCallUser = (type = "audio") => {
         const selectedChat = chats.find(c => c._id === selectedChatId);
         const otherParticipant = selectedChat?.participants.find(p => p._id !== user._id);
         if (!otherParticipant) return;
 
         setCallPeerId(otherParticipant._id);
+        setCurrentCallType(type);
+        callTypeRef.current = type;
+
         socket.emit('call_user', {
             callerId: user._id,
             receiverId: otherParticipant._id,
             callerName: user.name,
-            chatId: selectedChatId
+            chatId: selectedChatId,
+            callType: type
         });
         setIsInCall(true);
     };
 
     const acceptCall = () => {
         if (!incomingCall) return;
+        const type = incomingCall.callType || "audio";
+        setCurrentCallType(type);
+        callTypeRef.current = type;
+
         socket.emit('call_accepted', {
             callerId: incomingCall.callerId,
             receiverId: user._id
         });
         setCallPeerId(incomingCall.callerId);
         setIsInCall(true);
+        setupWebRTC(incomingCall.callerId, false, type);
         setIncomingCall(null);
+    };
+
+    const toggleMute = () => {
+        if (localStreamRef.current) {
+            const audioTrack = localStreamRef.current.getAudioTracks()[0];
+            if (audioTrack) {
+                audioTrack.enabled = !audioTrack.enabled;
+                setIsMuted(!audioTrack.enabled);
+            }
+        }
+    };
+
+    const toggleVideo = () => {
+        if (localStreamRef.current) {
+            const videoTrack = localStreamRef.current.getVideoTracks()[0];
+            if (videoTrack) {
+                videoTrack.enabled = !videoTrack.enabled;
+                setIsVideoOff(!videoTrack.enabled);
+            }
+        }
     };
 
     const rejectCall = () => {
@@ -1175,13 +1228,22 @@ function Chat() {
                                     🔍
                                 </button>
                                 {!selectedChat?.isGroupChat && (
-                                    <button
-                                        onClick={handleCallUser}
-                                        style={styles.searchToggleBtn}
-                                        title="Call"
-                                    >
-                                        📞
-                                    </button>
+                                    <>
+                                        <button
+                                            onClick={() => handleCallUser("audio")}
+                                            style={styles.searchToggleBtn}
+                                            title="Voice Call"
+                                        >
+                                            📞
+                                        </button>
+                                        <button
+                                            onClick={() => handleCallUser("video")}
+                                            style={styles.searchToggleBtn}
+                                            title="Video Call"
+                                        >
+                                            📹
+                                        </button>
+                                    </>
                                 )}
                                 {selectedChat?.isGroupChat && (
                                     <button
@@ -1846,9 +1908,9 @@ function Chat() {
                     <div style={styles.modalOverlay}>
                         <div style={{ ...styles.modalContent, textAlign: "center", padding: "30px", maxWidth: "300px" }}>
                             <div style={{ fontSize: "40px", marginBottom: "16px", animation: "pulse 1.5s infinite" }}>
-                                📞
+                                {incomingCall.callType === "video" ? "📹" : "📞"}
                             </div>
-                            <h3 style={{ margin: "0 0 8px", color: "#fff" }}>Incoming Call</h3>
+                            <h3 style={{ margin: "0 0 8px", color: "#fff" }}>Incoming {incomingCall.callType === "video" ? "Video" : "Voice"} Call</h3>
                             <p style={{ margin: "0 0 24px", color: "rgba(255,255,255,0.7)" }}>
                                 {incomingCall.callerName} is calling...
                             </p>
@@ -1867,24 +1929,44 @@ function Chat() {
                 {/* Active Call Overlay */}
                 {isInCall && (
                     <div style={{
-                        position: "fixed", top: "20px", right: "20px", width: "260px",
+                        position: "fixed", top: "20px", right: "20px",
+                        width: currentCallType === "video" ? "320px" : "260px",
                         background: "rgba(20, 18, 50, 0.95)", border: "1px solid rgba(255,255,255,0.1)",
                         borderRadius: "16px", padding: "20px", zIndex: 9999,
                         boxShadow: "0 10px 40px rgba(0,0,0,0.5)", textAlign: "center", backdropFilter: "blur(10px)"
                     }}>
                         <div style={{ marginBottom: "16px" }}>
-                            <div style={{
-                                width: "60px", height: "60px", borderRadius: "30px",
-                                background: "linear-gradient(135deg, #4ade80, #3b82f6)",
-                                margin: "0 auto 12px", display: "flex", alignItems: "center", justifyContent: "center",
-                                fontSize: "24px", color: "#fff", animation: "pulse 2s infinite"
-                            }}>
-                                📞
-                            </div>
-                            <h4 style={{ margin: "0 0 4px", color: "#fff", fontSize: "16px" }}>Voice Call</h4>
+                            {currentCallType === "video" ? (
+                                <div style={{ position: "relative", width: "100%", height: "200px", borderRadius: "12px", overflow: "hidden", background: "#000", marginBottom: "12px" }}>
+                                    <video ref={remoteVideoRef} autoPlay playsInline style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                                    <video ref={localVideoRef} autoPlay playsInline muted style={{ position: "absolute", bottom: "8px", right: "8px", width: "80px", height: "100px", borderRadius: "8px", objectFit: "cover", border: "2px solid rgba(255,255,255,0.2)", background: "#111", display: isVideoOff ? "none" : "block", transform: "scaleX(-1)" }} />
+                                </div>
+                            ) : (
+                                <div style={{
+                                    width: "60px", height: "60px", borderRadius: "30px",
+                                    background: "linear-gradient(135deg, #4ade80, #3b82f6)",
+                                    margin: "0 auto 12px", display: "flex", alignItems: "center", justifyContent: "center",
+                                    fontSize: "24px", color: "#fff", animation: "pulse 2s infinite"
+                                }}>
+                                    📞
+                                </div>
+                            )}
+                            <h4 style={{ margin: "0 0 4px", color: "#fff", fontSize: "16px" }}>
+                                {currentCallType === "video" ? "Video Call" : "Voice Call"}
+                            </h4>
                             <span style={{ fontSize: "12px", color: "rgba(255,255,255,0.6)" }}>
                                 {peerConnectionRef.current?.connectionState === "connected" ? "Connected" : "Calling..."}
                             </span>
+                        </div>
+                        <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
+                            <button onClick={toggleMute} style={{ ...styles.modalBtn, flex: 1, padding: "8px", background: isMuted ? "rgba(239,68,68,0.2)" : "rgba(255,255,255,0.1)", color: isMuted ? "#ef4444" : "#fff", border: "none" }}>
+                                {isMuted ? "Unmute" : "Mute"}
+                            </button>
+                            {currentCallType === "video" && (
+                                <button onClick={toggleVideo} style={{ ...styles.modalBtn, flex: 1, padding: "8px", background: isVideoOff ? "rgba(239,68,68,0.2)" : "rgba(255,255,255,0.1)", color: isVideoOff ? "#ef4444" : "#fff", border: "none" }}>
+                                    {isVideoOff ? "Start Video" : "Stop Video"}
+                                </button>
+                            )}
                         </div>
                         <button onClick={hangUp} style={{ ...styles.modalBtnDanger, width: "100%", padding: "10px", borderRadius: "10px", cursor: "pointer", fontWeight: 600, border: "none" }}>
                             End Call
