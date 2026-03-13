@@ -1,0 +1,135 @@
+PROJECT CONTEXT
+
+I am building a full-stack WhatsApp-like messaging platform.
+
+Tech Stack
+
+Backend
+Node.js
+Express.js
+MongoDB
+Mongoose
+Socket.IO
+JWT Authentication
+bcrypt
+Multer
+WebRTC
+
+Frontend
+React (Vite)
+Axios
+Socket.IO Client
+WebRTC
+Custom CSS
+
+Architecture
+
+React Client
+     │
+REST API (Axios)
+     │
+Node.js + Express
+     │
+Socket.IO (Real-time)
+     │
+MongoDB
+
+Current Project State
+
+The platform is already feature-complete for messaging and communication.
+
+Implemented Features
+
+Authentication
+- User registration
+- User login
+- JWT authentication
+- Password hashing (bcrypt)
+
+Chat System
+- Private chats
+- Group chats
+- Add/remove members
+- Leave group
+- Group avatar
+- Group description
+- System messages
+
+Messaging Features
+- Real-time messaging
+- Message status (sent / delivered / read)
+- Replies
+- Reactions
+- Mentions
+- Forwarding
+- Message editing
+- Message deletion
+- Pinned messages
+- Search in chat
+- Message grouping
+- Hover actions
+- Multi-select messages
+- Scheduled messages
+
+Media Features
+- Image sharing
+- File sharing
+- Image preview
+- Voice messages
+
+Uploads stored in
+
+uploads/images
+uploads/files
+uploads/audio
+
+Communication Features
+- Voice calls (WebRTC)
+- Video calls (WebRTC)
+- Typing indicators
+- Online / offline presence
+- Push notifications
+
+Social Features
+- Stories / Status (24h expiration)
+- Mentions in groups
+- Unread notifications
+
+Security
+- JWT authentication
+- Password hashing
+- End-to-end encryption
+- Protected routes
+
+Project Stage
+
+Feature-Complete Messaging Platform
+
+Comparable platforms:
+
+WhatsApp
+Telegram
+
+Development Roadmap
+
+Continue development starting from the following roadmap feature:
+
+1. Chat Backup / Export
+2. Multi-Device Synchronization
+3. Cloud Media Storage
+4. Message Translation
+5. AI Chat Assistant
+6. Call History
+7. Reaction Analytics
+8. Admin Moderation Tools
+9. Chat Themes
+10. Performance Optimization
+11. Production Deployment
+12. Monitoring & Logging
+13. Distributed Socket Architecture
+
+Instruction
+
+Continue development from the roadmap starting with:
+
+[feature name]

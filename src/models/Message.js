@@ -65,6 +65,14 @@ const messageSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   }],
+  scheduled: {
+    type: Boolean,
+    default: false
+  },
+  scheduledTime: {
+    type: Date,
+    default: null
+  },
   createdAt: {
     type: Date,
     default: Date.now

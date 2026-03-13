@@ -8,7 +8,8 @@ const {
   searchMessages,
   reactToMessage,
   uploadFile,
-  forwardMessage
+  forwardMessage,
+  scheduleMessage
 } = require('../controllers/messageController');
 const auth = require('../middleware/auth');
 const upload = require('../middleware/upload');
@@ -22,6 +23,7 @@ router.get('/search/:chatId', searchMessages);
 router.get('/:chatId', getMessages);
 router.post('/upload', upload.single('file'), uploadFile);
 router.post('/forward', forwardMessage);
+router.post('/schedule', scheduleMessage);
 router.post('/', sendMessage);
 router.post('/:id/react', reactToMessage);
 router.put('/read/:chatId', markAsRead);

@@ -48,6 +48,11 @@ function Chat() {
     const [messageText, setMessageText] = useState("");
     const [editingMessageId, setEditingMessageId] = useState(null);
     const [messageToDelete, setMessageToDelete] = useState(null);
+
+    // Scheduling state
+    const [showSchedulePicker, setShowSchedulePicker] = useState(false);
+    const [scheduledTime, setScheduledTime] = useState("");
+
     const [replyMessage, setReplyMessage] = useState(null);
     const [emojiPickerMsgId, setEmojiPickerMsgId] = useState(null);
     const [selectedMessages, setSelectedMessages] = useState([]);
@@ -143,7 +148,28 @@ function Chat() {
         const handleReceive = (message) => {
             const decryptedMessage = decryptMessageObj(message);
             if (decryptedMessage.chatId === selectedChatId) {
-                setMessages((prev) => [...prev, decryptedMessage]);
+                setMessages((prev) => {
+                    // Check if we already have this exact ID (useful for scheduled message auto-refreshes)
+                    const exists = prev.some((m) => m._id === decryptedMessage._id);
+                    if (exists) {
+                        return prev.map(m => m._id === decryptedMessage._id ? decryptedMessage : m);
+                    }
+
+                    // Also check if we have a temporary ID for this scheduled message
+                    // We can match by content and scheduled status
+                    if (decryptedMessage.scheduled_dispatched) {
+                        const tempIndex = prev.findIndex(m =>
+                            m.scheduled === true && m.content === decryptedMessage.content
+                        );
+                        if (tempIndex !== -1) {
+                            const newArray = [...prev];
+                            newArray[tempIndex] = decryptedMessage;
+                            return newArray;
+                        }
+                    }
+
+                    return [...prev, decryptedMessage];
+                });
                 // Mark as read since we have this chat open
                 socket.emit("messages_read", {
                     chatId: selectedChatId,
@@ -708,6 +734,52 @@ function Chat() {
             fetchChats(); // Update sidebar lastMessage
         } catch (error) {
             console.error("Error managing message:", error);
+        }
+    };
+
+    const handleScheduleMessage = async () => {
+        if (!messageText.trim() || !selectedChatId || !scheduledTime) return;
+
+        const scheduledDate = new Date(scheduledTime);
+        if (scheduledDate <= new Date()) {
+            alert("Scheduled time must be in the future");
+            return;
+        }
+
+        const selectedChat = chats.find((c) => c._id === selectedChatId);
+        const otherUser = selectedChat?.participants?.find((p) => p._id !== user._id);
+
+        if (!otherUser && !selectedChat?.isGroupChat) return;
+
+        try {
+            const msgPayload = {
+                chatId: selectedChatId,
+                receiverId: otherUser?._id,
+                content: encryptText(messageText.trim()),
+                replyTo: replyMessage?._id || null,
+                scheduledTime: scheduledDate.toISOString()
+            };
+
+            const res = await API.post("/messages/schedule", msgPayload);
+            const savedMsg = res.data.data;
+
+            // Optimistically add the scheduled message to UI
+            setMessages((prev) => [
+                ...prev,
+                {
+                    ...savedMsg,
+                    content: messageText.trim(), // Plan text
+                    replyTo: replyMessage ? { _id: replyMessage._id, content: replyMessage.content, senderId: replyMessage.senderId } : null,
+                },
+            ]);
+
+            setMessageText("");
+            setReplyMessage(null);
+            setShowSchedulePicker(false);
+            setScheduledTime("");
+        } catch (error) {
+            console.error("Error scheduling message:", error);
+            alert("Failed to schedule message.");
         }
     };
 
@@ -1579,6 +1651,11 @@ function Chat() {
                                                             }
                                                         </p>
                                                         <div style={styles.messageFooter}>
+                                                            {msg.scheduled && (
+                                                                <div style={{ fontSize: "11px", color: isOwn ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.4)", marginBottom: "4px", fontWeight: "600", display: "flex", alignItems: "center", gap: "4px" }}>
+                                                                    <span role="img" aria-label="clock">🕒</span> Scheduled for {new Date(msg.scheduledTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                                </div>
+                                                            )}
                                                             <span style={styles.messageTime}>
                                                                 {msg.edited && !msg.deleted && <span style={{ marginRight: '4px' }}>(edited)</span>}
                                                                 {formatMessageTime(msg.createdAt)}
@@ -1729,16 +1806,25 @@ function Chat() {
                                     )}
 
                                     {!messageText.trim() && !editingMessageId ? (
-                                        <button
-                                            onClick={isRecording ? stopRecording : startRecording}
-                                            style={{
-                                                ...styles.micBtn,
-                                                ...(isRecording ? styles.micBtnActive : {})
-                                            }}
-                                            title={isRecording ? "Stop & Send Recording" : "Record Voice Message"}
-                                        >
-                                            {isRecording ? "⏹️" : "🎤"}
-                                        </button>
+                                        <>
+                                            <button
+                                                onClick={() => setShowSchedulePicker(!showSchedulePicker)}
+                                                style={{ ...styles.attachBtn, fontSize: '18px', padding: '6px 4px' }}
+                                                title="Schedule Message"
+                                            >
+                                                🕒
+                                            </button>
+                                            <button
+                                                onClick={isRecording ? stopRecording : startRecording}
+                                                style={{
+                                                    ...styles.micBtn,
+                                                    ...(isRecording ? styles.micBtnActive : {})
+                                                }}
+                                                title={isRecording ? "Stop & Send Recording" : "Record Voice Message"}
+                                            >
+                                                {isRecording ? "⏹️" : "🎤"}
+                                            </button>
+                                        </>
                                     ) : (
                                         <button
                                             onClick={handleSendMessage}
@@ -1749,6 +1835,29 @@ function Chat() {
                                     )}
                                 </div>
                             </div>
+
+                            {/* Schedule Picker Bar */}
+                            {showSchedulePicker && (
+                                <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 16px", background: "rgba(255,255,255,0.02)", borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+                                    <span style={{ fontSize: "13px", color: "rgba(255,255,255,0.7)" }}>Schedule for:</span>
+                                    <input
+                                        type="datetime-local"
+                                        style={{ background: "rgba(255,255,255,0.1)", border: "none", color: "#fff", borderRadius: "6px", padding: "6px 10px", outline: "none", fontSize: "13px", colorScheme: "dark" }}
+                                        value={scheduledTime}
+                                        onChange={(e) => setScheduledTime(e.target.value)}
+                                        min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
+                                    />
+                                    <button
+                                        onClick={handleScheduleMessage}
+                                        disabled={!scheduledTime || !messageText.trim()}
+                                        style={{ ...styles.sendBtn, padding: "6px 12px", background: "linear-gradient(135deg, #10b981, #059669)", opacity: (!scheduledTime || !messageText.trim()) ? 0.5 : 1, pointerEvents: (!scheduledTime || !messageText.trim()) ? 'none' : 'auto', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '13px' }}
+                                    >
+                                        Schedule
+                                    </button>
+                                    <button onClick={() => { setShowSchedulePicker(false); setScheduledTime(""); }} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: "13px" }}>Cancel</button>
+                                </div>
+                            )}
+
                         </>
                     ) : (
                         <div style={styles.mainContent}>

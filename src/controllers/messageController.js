@@ -527,3 +527,76 @@ exports.forwardMessage = async (req, res, next) => {
     next(error);
   }
 };
+
+// @desc    Schedule a message
+// @route   POST /api/messages/schedule
+// @access  Private
+exports.scheduleMessage = async (req, res, next) => {
+  try {
+    const { chatId, content, receiverId, scheduledTime, replyTo } = req.body;
+
+    if (!chatId || !content || !receiverId || !scheduledTime) {
+      const error = new Error('chatId, content, receiverId and scheduledTime are required');
+      error.status = 400;
+      throw error;
+    }
+
+    const scheduledDate = new Date(scheduledTime);
+    if (scheduledDate <= new Date()) {
+      const error = new Error('Scheduled time must be in the future');
+      error.status = 400;
+      throw error;
+    }
+
+    // Check if user is participant
+    const chat = await Chat.findById(chatId);
+    if (!chat) {
+      const error = new Error('Chat not found');
+      error.status = 404;
+      throw error;
+    }
+
+    const isParticipant = chat.participants.some(
+      (p) => p.toString() === req.userId
+    );
+    if (!isParticipant) {
+      const error = new Error('Not authorized to send messages in this chat');
+      error.status = 403;
+      throw error;
+    }
+
+    // Detect Mentions
+    let mentionIds = [];
+    if (chat.isGroupChat && content) {
+      const mentionMatches = content.match(/@(\w+)/g);
+      if (mentionMatches) {
+        const mentionNames = mentionMatches.map(m => m.slice(1).toLowerCase());
+        const participants = await User.find({ _id: { $in: chat.participants } }).select('name');
+        mentionIds = participants
+          .filter(p => mentionNames.includes(p.name.toLowerCase()))
+          .map(p => p._id);
+      }
+    }
+
+    // Save scheduled message without updating chat.lastMessage yet
+    const message = await Message.create({
+      chatId,
+      senderId: req.userId,
+      receiverId,
+      content,
+      type: 'text',
+      status: 'sent',
+      replyTo: replyTo || null,
+      scheduled: true,
+      scheduledTime: scheduledDate,
+      mentions: mentionIds
+    });
+
+    res.status(201).json({
+      success: true,
+      data: message
+    });
+  } catch (error) {
+    next(error);
+  }
+};

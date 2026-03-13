@@ -6,6 +6,7 @@ const { Server } = require('socket.io');
 const app = require('./app');
 const connectDB = require('./config/db');
 const chatSocket = require('./sockets/chatSocket');
+const startScheduler = require('./services/messageScheduler');
 
 const PORT = process.env.PORT || 5000;
 const server = http.createServer(app);
@@ -23,6 +24,9 @@ const startServer = async () => {
 
   // Handle socket connections and wait for it to reset user statuses
   await chatSocket(io);
+
+  // Start background scheduler worker for delayed messages
+  startScheduler(io);
 
   // Start server
   server.listen(PORT, () => {
