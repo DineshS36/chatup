@@ -165,9 +165,49 @@ body, html, #root {
   transition: all 0.12s ease;
 }
 
+/* Message bubble smooth transition */
+.msg-row > div:last-of-type > div:first-child {
+  transition: filter 0.15s ease, transform 0.15s ease;
+}
+
 /* Message bubble hover subtle effect */
 .msg-row:hover > div:last-of-type > div:first-child {
-  filter: brightness(1.05);
+  filter: brightness(1.04);
+}
+
+/* Emoji button hover - scale up */
+.msg-row button[title="React"] ~ div button:hover {
+  transform: scale(1.2);
+}
+
+/* Reaction chip hover */
+.msg-row button:hover {
+  filter: brightness(1.1);
+}
+
+/* Cancel/Close button hover */
+button[title="Close"]:hover,
+button[title="Unpin"]:hover {
+  background: rgba(255,255,255,0.1) !important;
+}
+
+/* Smooth message entry */
+.msg-row {
+  animation: fadeIn 0.12s ease;
+}
+
+/* =========================================
+   3c. MOBILE MESSAGE ADJUSTMENTS
+   ========================================= */
+@media screen and (max-width: 767px) {
+  .msg-row .msg-actions {
+    gap: 1px !important;
+  }
+
+  .msg-row .msg-actions button {
+    padding: 3px 5px !important;
+    font-size: 11px !important;
+  }
 }
 
 /* =========================================

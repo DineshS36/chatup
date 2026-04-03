@@ -1261,11 +1261,16 @@ function Chat() {
                     100% { opacity: 0.2; }
                 }
                 @keyframes fadeIn {
-                    from { opacity: 0; }
-                    to { opacity: 1; }
+                    from { opacity: 0; transform: translateY(4px); }
+                    to { opacity: 1; transform: translateY(0); }
                 }
-                .msg-row:hover .msg-actions {
-                    opacity: 1 !important;
+                @keyframes pulse {
+                    0%, 100% { opacity: 1; }
+                    50% { opacity: 0.5; }
+                }
+                @keyframes slideUp {
+                    from { opacity: 0; transform: translateY(8px); }
+                    to { opacity: 1; transform: translateY(0); }
                 }
             `}</style>
             <div className="chat-container" style={styles.container}>
@@ -2350,15 +2355,21 @@ const styles = {
     typingIndicator: {
         fontSize: "12px",
         color: "#4ade80",
-        display: "block",
+        display: "flex",
+        alignItems: "center",
+        gap: "2px",
         marginTop: "2px",
     },
     typingDots: {
-        letterSpacing: "1px",
+        display: "inline-flex",
+        gap: "1px",
+        marginLeft: "2px",
     },
     dot: {
         display: "inline-block",
         animation: "blink 1.4s infinite both",
+        fontSize: "16px",
+        lineHeight: 1,
     },
     mainContent: {
         flex: 1,
@@ -2508,105 +2519,123 @@ const styles = {
         backdropFilter: "blur(8px)",
     },
     deletedBubble: {
-        background: "rgba(255,255,255,0.04)",
-        border: "1px dashed rgba(255,255,255,0.1)",
+        background: "rgba(255,255,255,0.03)",
+        border: "1px dashed rgba(255,255,255,0.08)",
+        boxShadow: "none",
     },
 
     /* Reply styles */
     replyPreviewBubble: {
-        background: "rgba(255,255,255,0.08)",
-        borderLeft: "3px solid #4ade80",
-        borderRadius: "4px",
+        background: "rgba(255,255,255,0.06)",
+        borderLeft: "2.5px solid #4ade80",
+        borderRadius: "2px 8px 8px 2px",
         padding: "6px 10px",
         marginBottom: "6px",
         display: "flex",
         flexDirection: "column",
-        gap: "2px",
+        gap: "1px",
+        cursor: "pointer",
+        transition: "background 0.15s",
     },
     replyPreviewName: {
         fontSize: "11px",
         fontWeight: 600,
         color: "#4ade80",
+        lineHeight: 1.3,
     },
     replyPreviewText: {
         fontSize: "12px",
-        color: "rgba(255,255,255,0.5)",
+        color: "rgba(255,255,255,0.45)",
         overflow: "hidden",
         textOverflow: "ellipsis",
         whiteSpace: "nowrap",
+        lineHeight: 1.3,
     },
     replyBanner: {
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
-        padding: "8px 24px",
-        background: "rgba(74, 222, 128, 0.08)",
-        borderTop: "1px solid rgba(74, 222, 128, 0.2)",
+        padding: "10px 24px",
+        background: "rgba(74, 222, 128, 0.06)",
+        borderTop: "1px solid rgba(74, 222, 128, 0.15)",
         borderLeft: "3px solid #4ade80",
+        animation: "slideUp 0.15s ease",
     },
 
     /* Reaction styles */
     emojiPicker: {
         display: "flex",
-        gap: "4px",
-        background: "rgba(0,0,0,0.85)",
-        borderRadius: "20px",
-        padding: "4px 8px",
+        gap: "2px",
+        background: "rgba(15, 12, 41, 0.92)",
+        borderRadius: "24px",
+        padding: "5px 10px",
         alignItems: "center",
-        marginRight: "8px",
         flexShrink: 0,
+        border: "1px solid rgba(255,255,255,0.08)",
+        backdropFilter: "blur(12px)",
+        boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+        animation: "fadeIn 0.15s ease",
     },
     emojiBtn: {
         background: "transparent",
         border: "none",
-        fontSize: "18px",
+        fontSize: "20px",
         cursor: "pointer",
-        padding: "2px 4px",
-        borderRadius: "6px",
-        transition: "transform 0.15s",
+        padding: "4px 5px",
+        borderRadius: "8px",
+        transition: "transform 0.12s, background 0.12s",
         lineHeight: 1,
     },
     reactionsRow: {
         display: "flex",
-        gap: "6px",
-        marginTop: "4px",
-        paddingLeft: "8px",
-        paddingRight: "8px",
+        gap: "4px",
+        marginTop: "-4px",
+        paddingLeft: "4px",
+        paddingRight: "4px",
         flexWrap: "wrap",
+        position: "relative",
+        zIndex: 1,
     },
     reactionChip: {
-        background: "rgba(255,255,255,0.1)",
-        border: "1px solid rgba(255,255,255,0.12)",
-        borderRadius: "14px",
-        padding: "3px 8px",
-        fontSize: "12px",
+        background: "rgba(255,255,255,0.08)",
+        border: "1px solid rgba(255,255,255,0.1)",
+        borderRadius: "12px",
+        padding: "2px 7px",
+        fontSize: "13px",
         cursor: "pointer",
         display: "flex",
         alignItems: "center",
         gap: "3px",
-        color: "rgba(255,255,255,0.7)",
-        transition: "background 0.15s",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+        color: "rgba(255,255,255,0.65)",
+        transition: "all 0.15s ease",
+        boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
+        lineHeight: 1.4,
     },
     reactionChipActive: {
-        background: "rgba(102, 126, 234, 0.3)",
-        borderColor: "rgba(102, 126, 234, 0.5)",
+        background: "rgba(102, 126, 234, 0.25)",
+        borderColor: "rgba(102, 126, 234, 0.45)",
+        color: "rgba(255,255,255,0.85)",
     },
 
     editBanner: {
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
-        padding: "8px 24px",
-        background: "rgba(102, 126, 234, 0.1)",
-        borderTop: "1px solid rgba(102, 126, 234, 0.2)",
+        padding: "10px 24px",
+        background: "rgba(102, 126, 234, 0.08)",
+        borderTop: "1px solid rgba(102, 126, 234, 0.15)",
+        borderLeft: "3px solid #667eea",
+        animation: "slideUp 0.15s ease",
     },
     cancelEditBtn: {
-        background: "transparent",
+        background: "rgba(255,255,255,0.06)",
         border: "none",
         color: "rgba(255,255,255,0.5)",
         cursor: "pointer",
-        padding: "2px",
+        padding: "4px 8px",
+        borderRadius: "6px",
+        fontSize: "13px",
+        transition: "background 0.15s",
     },
 
     /* Modals */
@@ -2616,20 +2645,23 @@ const styles = {
         left: 0,
         right: 0,
         bottom: 0,
-        backgroundColor: "rgba(0, 0, 0, 0.5)",
+        backgroundColor: "rgba(0, 0, 0, 0.6)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         zIndex: 1000,
+        backdropFilter: "blur(4px)",
+        animation: "fadeIn 0.15s ease",
     },
     modalContent: {
         backgroundColor: "#1a1640",
         padding: "24px",
-        borderRadius: "16px",
+        borderRadius: "20px",
         width: "90%",
         maxWidth: "400px",
-        border: "1px solid rgba(255,255,255,0.1)",
-        boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        boxShadow: "0 16px 48px rgba(0,0,0,0.5)",
+        animation: "slideUp 0.2s ease",
     },
     modalActions: {
         display: "flex",
