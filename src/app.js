@@ -17,8 +17,25 @@ const backupRoutes = require('./modules/backup/backup.routes');
 
 const app = express();
 
-// Middleware
-app.use(cors());
+// CORS whitelist
+const allowedOrigins = [
+  process.env.CLIENT_URL,
+  'http://localhost:5173',
+].filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (Postman, mobile apps, server-to-server)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    console.warn(`[CORS] Blocked request from origin: ${origin}`);
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+}));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

@@ -15,7 +15,13 @@ const chatSocket = async (io) => {
     }
 
     io.on('connection', (socket) => {
-        console.log(`Socket connected: ${socket.id}`);
+        // Safety check — reject if auth middleware was bypassed
+        if (!socket.user) {
+            console.warn(`[Socket] Unauthenticated socket rejected: ${socket.id}`);
+            socket.disconnect(true);
+            return;
+        }
+        console.log(`Socket connected: ${socket.id} (user: ${socket.user.userId})`);
 
         // ─── join ────────────────────────────────────────────────
         // Client sends: socket.emit('join', userId)
