@@ -1,6 +1,7 @@
 const Message = require('../models/Message');
 const Chat = require('../models/Chat');
 const User = require('../models/User');
+const { createMessage } = require('../services/messageService');
 
 // In-memory map of userId → socketId
 const onlineUsers = new Map();
@@ -65,44 +66,10 @@ const chatSocket = async (io) => {
                     return;
                 }
 
-                // Detect @mentions
-                const chat = await Chat.findById(chatId);
-                let mentionIds = [];
-                if (chat && chat.isGroupChat && content) {
-                    const mentionMatches = content.match(/@(\w+)/g);
-                    if (mentionMatches) {
-                        const mentionNames = mentionMatches.map(m => m.slice(1).toLowerCase());
-                        const participants = await User.find({ _id: { $in: chat.participants } }).select('name');
-                        mentionIds = participants
-                            .filter(p => mentionNames.includes(p.name.toLowerCase()))
-                            .map(p => p._id);
-                    }
-                }
-
-                // Save message to MongoDB
-                const message = await Message.create({
-                    chatId,
-                    senderId,
-                    receiverId,
-                    content,
-                    type: 'text',
-                    status: 'sent',
-                    replyTo: replyTo || null,
-                    mentions: mentionIds,
+                // Create message via service (single source of truth)
+                const { message, chat, mentionIds } = await createMessage({
+                    chatId, senderId, receiverId, content, replyTo,
                 });
-
-                // Update chat's lastMessage and increment unread counts
-                if (!chat) return;
-                chat.lastMessage = message._id;
-
-                chat.participants.forEach((participantId) => {
-                    if (participantId.toString() !== senderId) {
-                        const current = chat.unreadCounts.get(participantId.toString()) || 0;
-                        chat.unreadCounts.set(participantId.toString(), current + 1);
-                    }
-                });
-
-                await chat.save();
 
                 // Auto stop typing when message is sent
                 socket.to(chatId).emit('user_stop_typing', { chatId, senderId });

@@ -53,92 +53,15 @@ exports.getMessages = async (req, res, next) => {
   }
 };
 
-// @desc    Send a message
+// @desc    Send a message (DEPRECATED — use Socket.IO 'send_message' event)
 // @route   POST /api/messages
 // @access  Private
-exports.sendMessage = async (req, res, next) => {
-  try {
-    const { chatId, receiverId, content } = req.body;
-
-    if (!chatId || !content || !receiverId) {
-      const error = new Error('chatId, receiverId, and content are required');
-      error.status = 400;
-      throw error;
-    }
-
-    // Check if user is participant in chat
-    const chat = await Chat.findById(chatId);
-    if (!chat) {
-      const error = new Error('Chat not found');
-      error.status = 404;
-      throw error;
-    }
-
-    const isParticipant = chat.participants.some(
-      (participant) => participant.toString() === req.userId
-    );
-
-    if (!isParticipant) {
-      const error = new Error('Not authorized to send messages in this chat');
-      error.status = 403;
-      throw error;
-    }
-
-    // Detect @mentions in content
-    let mentionIds = [];
-    if (chat.isGroupChat && content) {
-      const mentionMatches = content.match(/@(\w+)/g);
-      if (mentionMatches) {
-        const mentionNames = mentionMatches.map(m => m.slice(1).toLowerCase());
-        const participants = await User.find({ _id: { $in: chat.participants } }).select('name');
-        mentionIds = participants
-          .filter(p => mentionNames.includes(p.name.toLowerCase()))
-          .map(p => p._id);
-      }
-    }
-
-    const message = await Message.create({
-      chatId,
-      senderId: req.userId,
-      receiverId,
-      content,
-      type: 'text',
-      status: 'sent',
-      mentions: mentionIds
-    });
-
-    // Update chat's lastMessage
-    chat.lastMessage = message._id;
-    await chat.save();
-
-    const populatedMessage = await Message.findById(message._id)
-      .populate('senderId', 'username email avatar')
-      .populate('receiverId', 'username email avatar');
-
-    // Emit mention notifications
-    if (mentionIds.length > 0) {
-      const io = req.app.get('io');
-      if (io) {
-        const sender = await User.findById(req.userId).select('name');
-        mentionIds.forEach(mentionedUserId => {
-          io.to(mentionedUserId.toString()).emit('mention_notification', {
-            chatId,
-            chatName: chat.name,
-            messageId: message._id,
-            senderName: sender.name,
-            content: content.substring(0, 100)
-          });
-        });
-      }
-    }
-
-    res.status(201).json({
-      success: true,
-      data: populatedMessage
-    });
-  } catch (error) {
-    next(error);
-  }
+exports.sendMessage = async (req, res) => {
+  console.warn(`[DEPRECATED] POST /api/messages called by userId: ${req.userId}. Use Socket.IO 'send_message' instead.`);
+  res.status(405).json({
+    success: false,
+    message: 'Message creation via REST API is deprecated. Use Socket.IO send_message event instead.',
+  });
 };
 
 // @desc    Mark messages as read
