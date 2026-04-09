@@ -34,11 +34,6 @@ const chatSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
-  unreadCounts: {
-    type: Map,
-    of: Number,
-    default: {}
-  },
   pinnedMessages: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Message'

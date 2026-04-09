@@ -1,6 +1,7 @@
 const Message = require('../models/Message');
 const Chat = require('../models/Chat');
 const User = require('../models/User');
+const UnreadCount = require('../models/UnreadCount');
 
 /**
  * Detect @mentions in message content for group chats.
@@ -21,7 +22,8 @@ const detectMentions = async (chat, content) => {
 };
 
 /**
- * Create a message, update chat metadata (lastMessage + unread counts),
+ * Create a message, update chat metadata (lastMessage),
+ * atomically increment unread counts in the UnreadCount collection,
  * and return the saved message document.
  *
  * @param {Object} data
@@ -52,20 +54,53 @@ const createMessage = async ({ chatId, senderId, receiverId, content, type = 'te
     mentions: mentionIds,
   });
 
-  // Update chat's lastMessage
+  // Update chat's lastMessage (no longer touching unreadCounts here)
   chat.lastMessage = message._id;
-
-  // Increment unread counts for all participants except the sender
-  chat.participants.forEach((participantId) => {
-    if (participantId.toString() !== senderId) {
-      const current = chat.unreadCounts.get(participantId.toString()) || 0;
-      chat.unreadCounts.set(participantId.toString(), current + 1);
-    }
-  });
-
   await chat.save();
+
+  // Atomically increment unread counts for all participants except the sender
+  const bulkOps = chat.participants
+    .filter(pid => pid.toString() !== senderId)
+    .map(pid => ({
+      updateOne: {
+        filter: { chatId: chat._id, userId: pid },
+        update: { $inc: { count: 1 } },
+        upsert: true,
+      },
+    }));
+
+  if (bulkOps.length > 0) {
+    await UnreadCount.bulkWrite(bulkOps);
+  }
 
   return { message, chat, mentionIds };
 };
 
-module.exports = { createMessage, detectMentions };
+/**
+ * Reset unread count for a specific user in a specific chat.
+ */
+const resetUnreadCount = async (chatId, userId) => {
+  await UnreadCount.updateOne(
+    { chatId, userId },
+    { $set: { count: 0 } },
+    { upsert: true }
+  );
+};
+
+/**
+ * Get unread counts for a user across all their chats.
+ * Returns a plain object: { chatId: count, ... }
+ */
+const getUnreadCountsForUser = async (userId) => {
+  const records = await UnreadCount.find({ userId, count: { $gt: 0 } })
+    .select('chatId count')
+    .lean();
+
+  const map = {};
+  records.forEach(r => {
+    map[r.chatId.toString()] = r.count;
+  });
+  return map;
+};
+
+module.exports = { createMessage, detectMentions, resetUnreadCount, getUnreadCountsForUser };

@@ -1,6 +1,7 @@
 const Chat = require('../models/Chat');
 const User = require('../models/User');
 const Message = require('../models/Message');
+const { resetUnreadCount, getUnreadCountsForUser } = require('../services/messageService');
 
 // @desc    Get all chats for logged in user
 // @route   GET /api/chats
@@ -12,7 +13,16 @@ exports.getChats = async (req, res, next) => {
       .populate('admin', 'name email profilePic')
       .populate('lastMessage')
       .populate('pinnedMessages', 'content senderId')
-      .sort({ updatedAt: -1 });
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    // Attach unread counts from the UnreadCount collection
+    const unreadMap = await getUnreadCountsForUser(req.userId);
+    chats.forEach(chat => {
+      chat.unreadCounts = {
+        [req.userId]: unreadMap[chat._id.toString()] || 0,
+      };
+    });
 
     res.json({
       success: true,
@@ -435,9 +445,8 @@ exports.markChatAsRead = async (req, res, next) => {
       { status: 'read' }
     );
 
-    // Reset unread count for current user
-    chat.unreadCounts.set(req.userId, 0);
-    await chat.save();
+    // Reset unread count via UnreadCount collection
+    await resetUnreadCount(chatId, req.userId);
 
     res.json({
       success: true,
