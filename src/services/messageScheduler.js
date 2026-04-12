@@ -1,6 +1,7 @@
 const Message = require('../models/Message');
 const Chat = require('../models/Chat');
 const User = require('../models/User');
+const UnreadCount = require('../models/UnreadCount');
 
 const startScheduler = (io) => {
     // Run every 1 minute
@@ -23,19 +24,26 @@ const startScheduler = (io) => {
                 message.scheduled = false;
                 await message.save();
 
-                // Get chat to update lastMessage and unread counts
+                // Get chat to update lastMessage
                 const chat = await Chat.findById(message.chatId);
                 if (chat) {
                     chat.lastMessage = message._id;
-
-                    chat.participants.forEach((participantId) => {
-                        if (participantId.toString() !== message.senderId.toString()) {
-                            const current = chat.unreadCounts.get(participantId.toString()) || 0;
-                            chat.unreadCounts.set(participantId.toString(), current + 1);
-                        }
-                    });
-
                     await chat.save();
+
+                    // Atomically increment unread counts via separate collection
+                    const bulkOps = chat.participants
+                        .filter(pid => pid.toString() !== message.senderId.toString())
+                        .map(pid => ({
+                            updateOne: {
+                                filter: { chatId: chat._id, userId: pid },
+                                update: { $inc: { count: 1 } },
+                                upsert: true,
+                            },
+                        }));
+
+                    if (bulkOps.length > 0) {
+                        await UnreadCount.bulkWrite(bulkOps);
+                    }
                 }
 
                 // Push via websockets if clients are active across the app map
