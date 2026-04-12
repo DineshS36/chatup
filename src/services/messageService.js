@@ -5,20 +5,35 @@ const UnreadCount = require('../models/UnreadCount');
 
 /**
  * Detect @mentions in message content for group chats.
+ * Optimized: queries only the mentioned usernames instead of all participants.
  * Returns an array of mentioned user ObjectIds.
  */
+const MAX_MENTIONS = 10;
+
 const detectMentions = async (chat, content) => {
   if (!chat.isGroupChat || !content) return [];
 
   const mentionMatches = content.match(/@(\w+)/g);
   if (!mentionMatches) return [];
 
-  const mentionNames = mentionMatches.map(m => m.slice(1).toLowerCase());
-  const participants = await User.find({ _id: { $in: chat.participants } }).select('name');
+  // Extract unique mention names (capped to prevent abuse)
+  const mentionNames = [...new Set(
+    mentionMatches.slice(0, MAX_MENTIONS).map(m => m.slice(1).toLowerCase())
+  )];
 
-  return participants
-    .filter(p => mentionNames.includes(p.name.toLowerCase()))
-    .map(p => p._id);
+  // Query only users whose name matches — much cheaper than fetching all participants
+  const matchedUsers = await User.find({
+    name: { $regex: new RegExp(`^(${mentionNames.join('|')})$`, 'i') },
+  }).select('_id name');
+
+  if (matchedUsers.length === 0) return [];
+
+  // Validate that matched users are actually participants in this chat
+  const participantSet = new Set(chat.participants.map(p => p.toString()));
+
+  return matchedUsers
+    .filter(u => participantSet.has(u._id.toString()))
+    .map(u => u._id);
 };
 
 /**
