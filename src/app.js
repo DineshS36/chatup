@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const rateLimit = require('express-rate-limit');
 
 const authRoutes = require('./routes/authRoutes');
 const chatRoutes = require('./routes/chatRoutes');
@@ -42,12 +43,31 @@ app.use(express.urlencoded({ extended: true }));
 // Serve uploaded files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// API Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/chats', chatRoutes);
-app.use('/api/messages', messageRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/stories', storyRoutes);
+// ─── Rate Limiters ────────────────────────────────────────────
+// Auth limiter: strict — prevents brute-force login/register attacks
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,
+  message: { success: false, message: 'Too many requests. Try again after 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// General API limiter: lenient — prevents general abuse
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 100,
+  message: { success: false, message: 'Too many requests. Slow down.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// API Routes (auth limiter is stricter)
+app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/chats', apiLimiter, chatRoutes);
+app.use('/api/messages', apiLimiter, messageRoutes);
+app.use('/api/users', apiLimiter, userRoutes);
+app.use('/api/stories', apiLimiter, storyRoutes);
 
 // Stage 2: Modular API Routes
 app.use('/api/communities', communityRoutes);

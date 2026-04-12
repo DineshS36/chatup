@@ -7,6 +7,11 @@ const { createMessage } = require('../services/messageService');
 const onlineUsers = new Map();
 const HEARTBEAT_INTERVAL = 30000;  // check every 30s
 const STALE_THRESHOLD   = 60000;  // remove if no heartbeat for 60s
+const MSG_RATE_LIMIT    = 30;     // max messages per window
+const MSG_RATE_WINDOW   = 60000;  // 1 minute window
+
+// Per-user message rate tracking: userId → { count, lastReset }
+const messageRateMap = new Map();
 
 const chatSocket = async (io) => {
     // Reset all users to offline on server start
@@ -93,6 +98,29 @@ const chatSocket = async (io) => {
         socket.on('send_message', async (data) => {
             try {
                 const { chatId, senderId, receiverId, content, replyTo } = data;
+
+                // ─── Socket rate limit check ───
+                if (senderId) {
+                    const now = Date.now();
+                    const rate = messageRateMap.get(senderId) || { count: 0, lastReset: now };
+
+                    // Reset window if expired
+                    if (now - rate.lastReset > MSG_RATE_WINDOW) {
+                        rate.count = 0;
+                        rate.lastReset = now;
+                    }
+
+                    rate.count++;
+                    messageRateMap.set(senderId, rate);
+
+                    if (rate.count > MSG_RATE_LIMIT) {
+                        console.warn(`[RateLimit] User ${senderId} exceeded ${MSG_RATE_LIMIT} msgs/min`);
+                        socket.emit('rate_limited', {
+                            message: 'You are sending messages too fast. Please slow down.',
+                        });
+                        return;
+                    }
+                }
 
                 // Validate required fields
                 if (!chatId || !senderId || !receiverId || !content) {
