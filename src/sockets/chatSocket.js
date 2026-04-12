@@ -3,8 +3,10 @@ const Chat = require('../models/Chat');
 const User = require('../models/User');
 const { createMessage } = require('../services/messageService');
 
-// In-memory map of userId → socketId
+// In-memory map of userId → { socketId, lastSeen }
 const onlineUsers = new Map();
+const HEARTBEAT_INTERVAL = 30000;  // check every 30s
+const STALE_THRESHOLD   = 60000;  // remove if no heartbeat for 60s
 
 const chatSocket = async (io) => {
     // Reset all users to offline on server start
@@ -14,6 +16,30 @@ const chatSocket = async (io) => {
     } catch (err) {
         console.error('Error resetting users to offline:', err.message);
     }
+
+    // ─── Stale-user cleanup interval ──────────────────────────
+    setInterval(async () => {
+        const now = Date.now();
+        for (const [userId, entry] of onlineUsers.entries()) {
+            if (now - entry.lastSeen > STALE_THRESHOLD) {
+                onlineUsers.delete(userId);
+                console.log(`[Cleanup] Stale user removed: ${userId}`);
+                try {
+                    await User.findByIdAndUpdate(userId, {
+                        status: 'offline',
+                        lastSeen: new Date(),
+                    });
+                    io.emit('user_status_update', {
+                        userId,
+                        status: 'offline',
+                        lastSeen: new Date(),
+                    });
+                } catch (err) {
+                    console.error('[Cleanup] Error updating stale user:', err.message);
+                }
+            }
+        }
+    }, HEARTBEAT_INTERVAL);
 
     io.on('connection', (socket) => {
         // Safety check — reject if auth middleware was bypassed
@@ -28,7 +54,7 @@ const chatSocket = async (io) => {
         // Client sends: socket.emit('join', userId)
         // Stores the userId ↔ socketId mapping
         socket.on('join', async (userId) => {
-            onlineUsers.set(userId, socket.id);
+            onlineUsers.set(userId, { socketId: socket.id, lastSeen: Date.now() });
             console.log(`User joined: ${userId} → ${socket.id}`);
             console.log(`Online users: ${onlineUsers.size}`);
 
@@ -38,6 +64,16 @@ const chatSocket = async (io) => {
                 io.emit('user_status_update', { userId, status: 'online' });
             } catch (err) {
                 console.error('Error updating user online status:', err.message);
+            }
+        });
+
+        // ─── heartbeat ────────────────────────────────────────────
+        // Client sends: socket.emit('heartbeat', userId)
+        // Refreshes the lastSeen timestamp to prevent stale cleanup
+        socket.on('heartbeat', (userId) => {
+            const entry = onlineUsers.get(userId);
+            if (entry && entry.socketId === socket.id) {
+                entry.lastSeen = Date.now();
             }
         });
 
@@ -93,7 +129,7 @@ const chatSocket = async (io) => {
                 if (mentionIds.length > 0) {
                     const sender = await User.findById(senderId).select('name');
                     mentionIds.forEach(mentionedUserId => {
-                        const mentionedSocketId = onlineUsers.get(mentionedUserId.toString());
+                        const mentionedSocketId = onlineUsers.get(mentionedUserId.toString())?.socketId;
                         if (mentionedSocketId) {
                             io.to(mentionedSocketId).emit('mention_notification', {
                                 chatId,
@@ -113,7 +149,7 @@ const chatSocket = async (io) => {
                 socket.to(chatId).emit('receive_message', messagePayload);
 
                 // 3. If receiver is online, mark as delivered and notify sender
-                const receiverSocketId = onlineUsers.get(receiverId);
+                const receiverSocketId = onlineUsers.get(receiverId)?.socketId;
                 if (receiverSocketId) {
                     await Message.findByIdAndUpdate(message._id, { status: 'delivered' });
 
@@ -159,7 +195,7 @@ const chatSocket = async (io) => {
                 // Collect unique senders and notify them
                 const senderIds = [...new Set(unreadMessages.map(m => m.senderId.toString()))];
                 senderIds.forEach((senderId) => {
-                    const senderSocketId = onlineUsers.get(senderId);
+                    const senderSocketId = onlineUsers.get(senderId)?.socketId;
                     if (senderSocketId) {
                         io.to(senderSocketId).emit('messages_read', { chatId });
                     }
@@ -188,7 +224,7 @@ const chatSocket = async (io) => {
 
         // ─── WebRTC Signaling for Audio/Video Calls ───────────────────
         socket.on('call_user', async ({ callerId, receiverId, callerName, chatId, callType }) => {
-            const receiverSocketId = onlineUsers.get(receiverId);
+            const receiverSocketId = onlineUsers.get(receiverId)?.socketId;
             if (receiverSocketId) {
                 io.to(receiverSocketId).emit('incoming_call', {
                     callerId,
@@ -203,28 +239,28 @@ const chatSocket = async (io) => {
         });
 
         socket.on('call_accepted', ({ callerId, receiverId }) => {
-            const callerSocketId = onlineUsers.get(callerId);
+            const callerSocketId = onlineUsers.get(callerId)?.socketId;
             if (callerSocketId) {
                 io.to(callerSocketId).emit('call_accepted', { receiverId });
             }
         });
 
         socket.on('call_rejected', ({ callerId }) => {
-            const callerSocketId = onlineUsers.get(callerId);
+            const callerSocketId = onlineUsers.get(callerId)?.socketId;
             if (callerSocketId) {
                 io.to(callerSocketId).emit('call_rejected', { reason: 'Call declined' });
             }
         });
 
         socket.on('webrtc_signal', ({ targetId, signal }) => {
-            const targetSocketId = onlineUsers.get(targetId);
+            const targetSocketId = onlineUsers.get(targetId)?.socketId;
             if (targetSocketId) {
-                io.to(targetSocketId).emit('webrtc_signal', { signal, from: Array.from(onlineUsers.entries()).find(([k, v]) => v === socket.id)?.[0] });
+                io.to(targetSocketId).emit('webrtc_signal', { signal, from: Array.from(onlineUsers.entries()).find(([k, v]) => v.socketId === socket.id)?.[0] });
             }
         });
 
         socket.on('end_call', ({ targetId }) => {
-            const targetSocketId = onlineUsers.get(targetId);
+            const targetSocketId = onlineUsers.get(targetId)?.socketId;
             if (targetSocketId) {
                 io.to(targetSocketId).emit('end_call');
             }
@@ -290,8 +326,8 @@ const chatSocket = async (io) => {
         // Removes the userId from the online map
         socket.on('disconnect', async () => {
             // Find and remove the user by their socketId
-            for (const [userId, socketId] of onlineUsers.entries()) {
-                if (socketId === socket.id) {
+            for (const [userId, entry] of onlineUsers.entries()) {
+                if (entry.socketId === socket.id) {
                     onlineUsers.delete(userId);
                     console.log(`User disconnected: ${userId} (${socket.id})`);
 

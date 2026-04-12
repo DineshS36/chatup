@@ -127,7 +127,13 @@ function Chat() {
             socket.emit("user_online", user._id);
         }
 
+        // Send heartbeat every 25s to keep presence alive
+        const heartbeatInterval = setInterval(() => {
+            if (user._id) socket.emit("heartbeat", user._id);
+        }, 25000);
+
         return () => {
+            clearInterval(heartbeatInterval);
             socket.off("receive_message");
             socket.off("message_delivered");
             socket.off("messages_read");
