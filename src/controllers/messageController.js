@@ -515,6 +515,21 @@ exports.scheduleMessage = async (req, res, next) => {
       mentions: mentionIds
     });
 
+    // Add delayed job to BullMQ queue (safe fallback: old scheduler still runs)
+    try {
+      const messageQueue = require('../queues/messageQueue');
+      const delay = scheduledDate.getTime() - Date.now();
+      await messageQueue.add(
+        'dispatch',
+        { messageId: message._id.toString() },
+        { delay, jobId: `sched_${message._id}` }
+      );
+      console.log(`[BullMQ] Job queued for message ${message._id} (delay: ${Math.round(delay / 1000)}s)`);
+    } catch (queueErr) {
+      // If Redis is down, the old setInterval scheduler will still pick it up
+      console.warn(`[BullMQ] Failed to queue job — fallback scheduler will handle it: ${queueErr.message}`);
+    }
+
     res.status(201).json({
       success: true,
       data: message

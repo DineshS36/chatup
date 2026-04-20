@@ -57,8 +57,16 @@ const startServer = async () => {
   // Handle socket connections and wait for it to reset user statuses
   await chatSocket(io);
 
-  // Start background scheduler worker for delayed messages
+  // Start background scheduler worker for delayed messages (legacy fallback)
   startScheduler(io);
+
+  // Start BullMQ worker for reliable scheduled messages (requires Redis)
+  try {
+    const startMessageWorker = require('./workers/messageWorker');
+    startMessageWorker(io);
+  } catch (err) {
+    console.warn(`[BullMQ] Worker not started — falling back to setInterval scheduler: ${err.message}`);
+  }
 
   // Start server
   server.listen(PORT, () => {
