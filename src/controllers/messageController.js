@@ -488,51 +488,39 @@ exports.scheduleMessage = async (req, res, next) => {
       throw error;
     }
 
-    // Detect Mentions
-    let mentionIds = [];
-    if (chat.isGroupChat && content) {
-      const mentionMatches = content.match(/@(\w+)/g);
-      if (mentionMatches) {
-        const mentionNames = mentionMatches.map(m => m.slice(1).toLowerCase());
-        const participants = await User.find({ _id: { $in: chat.participants } }).select('name');
-        mentionIds = participants
-          .filter(p => mentionNames.includes(p.name.toLowerCase()))
-          .map(p => p._id);
-      }
-    }
+    // Build unique job ID to prevent duplicate queue entries
+    const jobId = `sched_${chatId}_${req.userId}_${scheduledDate.getTime()}`;
 
-    // Save scheduled message without updating chat.lastMessage yet
-    const message = await Message.create({
-      chatId,
-      senderId: req.userId,
-      receiverId,
-      content,
-      type: 'text',
-      status: 'sent',
-      replyTo: replyTo || null,
-      scheduled: true,
-      scheduledTime: scheduledDate,
-      mentions: mentionIds
-    });
+    // Add delayed job to BullMQ — worker will create the message
+    const messageQueue = require('../queues/messageQueue');
+    const delay = scheduledDate.getTime() - Date.now();
 
-    // Add delayed job to BullMQ queue (safe fallback: old scheduler still runs)
-    try {
-      const messageQueue = require('../queues/messageQueue');
-      const delay = scheduledDate.getTime() - Date.now();
-      await messageQueue.add(
-        'dispatch',
-        { messageId: message._id.toString() },
-        { delay, jobId: `sched_${message._id}` }
-      );
-      console.log(`[BullMQ] Job queued for message ${message._id} (delay: ${Math.round(delay / 1000)}s)`);
-    } catch (queueErr) {
-      // If Redis is down, the old setInterval scheduler will still pick it up
-      console.warn(`[BullMQ] Failed to queue job — fallback scheduler will handle it: ${queueErr.message}`);
-    }
+    await messageQueue.add(
+      'dispatch',
+      {
+        chatId,
+        senderId: req.userId,
+        receiverId,
+        content,
+        replyTo: replyTo || null,
+        scheduledTime: scheduledDate.toISOString(),
+      },
+      { delay, jobId }
+    );
+
+    console.log(`[BullMQ] Scheduled job ${jobId} (delay: ${Math.round(delay / 1000)}s)`);
 
     res.status(201).json({
       success: true,
-      data: message
+      data: {
+        jobId,
+        chatId,
+        senderId: req.userId,
+        receiverId,
+        content,
+        scheduledTime: scheduledDate,
+        status: 'queued',
+      }
     });
   } catch (error) {
     next(error);

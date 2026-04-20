@@ -9,8 +9,7 @@ const { createRedisConnection } = require('../config/redis');
 const messageQueue = new Queue('scheduledMessages', {
   connection: createRedisConnection(),
   defaultJobOptions: {
-    attempts: 3,
-    backoff: { type: 'exponential', delay: 5000 },
+    attempts: 1,
     removeOnComplete: true,
     removeOnFail: false, // Keep failed jobs for inspection
   },

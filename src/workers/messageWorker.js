@@ -3,10 +3,11 @@ const { createRedisConnection } = require('../config/redis');
 const Message = require('../models/Message');
 const Chat = require('../models/Chat');
 const UnreadCount = require('../models/UnreadCount');
+const { detectMentions } = require('../services/messageService');
 
 /**
  * Start the BullMQ worker that processes scheduled message jobs.
- * Must receive the Socket.IO `io` instance to emit real-time events.
+ * This is the SINGLE source of truth for scheduled message creation.
  *
  * @param {import('socket.io').Server} io
  */
@@ -14,49 +15,53 @@ const startMessageWorker = (io) => {
   const worker = new Worker(
     'scheduledMessages',
     async (job) => {
-      const { messageId } = job.data;
+      const { chatId, senderId, receiverId, content, replyTo, scheduledTime } = job.data;
 
-      console.log(`[Worker] Processing scheduled message: ${messageId}`);
+      console.log(`[Worker] Processing scheduled job: ${job.id}`);
 
-      // 1. Find the message — guard against duplicates
-      const message = await Message.findById(messageId);
-      if (!message) {
-        console.warn(`[Worker] Message ${messageId} not found — skipping`);
-        return;
-      }
-      if (!message.scheduled) {
-        console.warn(`[Worker] Message ${messageId} already dispatched — skipping`);
+      // 1. Get chat for mention detection and participant list
+      const chat = await Chat.findById(chatId);
+      if (!chat) {
+        console.warn(`[Worker] Chat ${chatId} not found — skipping job ${job.id}`);
         return;
       }
 
-      // 2. Mark as dispatched
-      message.scheduled = false;
-      await message.save();
+      // 2. Detect mentions
+      const mentionIds = await detectMentions(chat, content);
 
-      // 3. Update chat's lastMessage
-      const chat = await Chat.findById(message.chatId);
-      if (chat) {
-        chat.lastMessage = message._id;
-        await chat.save();
+      // 3. Create the message (single source of truth — only place scheduled messages are created)
+      const message = await Message.create({
+        chatId,
+        senderId,
+        receiverId,
+        content,
+        type: 'text',
+        status: 'sent',
+        replyTo: replyTo || null,
+        mentions: mentionIds,
+      });
 
-        // Atomically increment unread counts
-        const bulkOps = chat.participants
-          .filter(pid => pid.toString() !== message.senderId.toString())
-          .map(pid => ({
-            updateOne: {
-              filter: { chatId: chat._id, userId: pid },
-              update: { $inc: { count: 1 } },
-              upsert: true,
-            },
-          }));
+      // 4. Update chat's lastMessage
+      chat.lastMessage = message._id;
+      await chat.save();
 
-        if (bulkOps.length > 0) {
-          await UnreadCount.bulkWrite(bulkOps);
-        }
+      // 5. Atomically increment unread counts
+      const bulkOps = chat.participants
+        .filter(pid => pid.toString() !== senderId)
+        .map(pid => ({
+          updateOne: {
+            filter: { chatId: chat._id, userId: pid },
+            update: { $inc: { count: 1 } },
+            upsert: true,
+          },
+        }));
+
+      if (bulkOps.length > 0) {
+        await UnreadCount.bulkWrite(bulkOps);
       }
 
-      // 4. Emit via Socket.IO to the chat room
-      io.to(message.chatId.toString()).emit('receive_message', {
+      // 6. Emit via Socket.IO to the chat room
+      io.to(chatId.toString()).emit('receive_message', {
         _id: message._id,
         chatId: message.chatId,
         senderId: message.senderId,
@@ -70,17 +75,17 @@ const startMessageWorker = (io) => {
         scheduled_dispatched: true,
       });
 
-      // 5. Global mention check
-      if (message.mentions && message.mentions.length > 0) {
+      // 7. Global mention check
+      if (mentionIds.length > 0) {
         io.emit('global_mention_check', {
-          chatId: message.chatId,
+          chatId,
           messageId: message._id,
-          mentions: message.mentions,
-          senderId: message.senderId,
+          mentions: mentionIds,
+          senderId,
         });
       }
 
-      console.log(`[Worker] Dispatched scheduled message: ${messageId}`);
+      console.log(`[Worker] Created & dispatched scheduled message: ${message._id} (job: ${job.id})`);
     },
     {
       connection: createRedisConnection(),

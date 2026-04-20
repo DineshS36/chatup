@@ -7,7 +7,7 @@ const jwt = require('jsonwebtoken');
 const app = require('./app');
 const connectDB = require('./config/db');
 const chatSocket = require('./sockets/chatSocket');
-const startScheduler = require('./services/messageScheduler');
+const startMessageWorker = require('./workers/messageWorker');
 
 const PORT = process.env.PORT || 5000;
 const server = http.createServer(app);
@@ -57,16 +57,8 @@ const startServer = async () => {
   // Handle socket connections and wait for it to reset user statuses
   await chatSocket(io);
 
-  // Start background scheduler worker for delayed messages (legacy fallback)
-  startScheduler(io);
-
-  // Start BullMQ worker for reliable scheduled messages (requires Redis)
-  try {
-    const startMessageWorker = require('./workers/messageWorker');
-    startMessageWorker(io);
-  } catch (err) {
-    console.warn(`[BullMQ] Worker not started — falling back to setInterval scheduler: ${err.message}`);
-  }
+  // Start BullMQ worker for reliable scheduled messages
+  startMessageWorker(io);
 
   // Start server
   server.listen(PORT, () => {
